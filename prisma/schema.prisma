@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Idea {
+  id            String   @id @default(cuid())
+  text          String
+  source        String   @default("manual") // manual | audio | link | trend
+  pillar        String   // kinh_nghiem | goc_nhin | kien_thuc | loi_song
+  platform      String   // threads | website
+  priorityScore Int      @default(50)
+  priority      String   @default("medium") // high | medium | low
+  referenceLink String?
+  createdAt     DateTime @default(now())
+  drafts        Draft[]
+}
+
+model Draft {
+  id                String         @id @default(cuid())
+  ideaId            String
+  idea              Idea           @relation(fields: [ideaId], references: [id])
+  platform          String         // threads | website
+  pillar            String         // kinh_nghiem | goc_nhin | kien_thuc | loi_song
+  title             String
+  hook              String
+  body              String
+  outline           String         @default("")
+  metaDescription   String?
+  targetKeyword     String?
+  version           Int            @default(1)
+  aiModel           String         @default("gpt-4o")
+  status            String         @default("draft") // draft | needs_review | needs_edit | approved
+  originalityRisk   Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  review            ReviewItem?
+  scheduledPost     ScheduledPost?
+  performanceMetric PerformanceMetric?
+}
+
+model ReviewItem {
+  id                String   @id @default(cuid())
+  draftId           String   @unique
+  draft             Draft    @relation(fields: [draftId], references: [id])
+  status            String   @default("pending") // pending | needs_edit | approved
+  aiRiskNotes       String   @default("[]") // JSON array stored as string
+  reviewerComments  String   @default("")
+  createdAt         DateTime @default(now())
+}
+
+model ScheduledPost {
+  id            String   @id @default(cuid())
+  draftId       String   @unique
+  draft         Draft    @relation(fields: [draftId], references: [id])
+  platform      String   // threads | website
+  scheduledTime DateTime
+  publishStatus String   @default("queued") // queued | published | failed
+  retryCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+  metric        PerformanceMetric?
+}
+
+model PerformanceMetric {
+  id               String        @id @default(cuid())
+  scheduledPostId  String        @unique
+  scheduledPost    ScheduledPost @relation(fields: [scheduledPostId], references: [id])
+  draftId          String
+  draft            Draft         @relation(fields: [draftId], references: [id])
+  platform         String        // threads | website
+  pillar           String        // kinh_nghiem | goc_nhin | kien_thuc | loi_song
+  views            Int           @default(0)
+  likes            Int           @default(0)
+  comments         Int           @default(0)
+  engagementRate   Float         @default(0)
+  capturedAt       DateTime      @default(now())
+}
