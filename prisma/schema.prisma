@@ -11,7 +11,7 @@ model Idea {
   id            String   @id @default(cuid())
   text          String
   source        String   @default("manual") // manual | audio | link | trend
-  pillar        String   // kinh_nghiem | goc_nhin | kien_thuc | loi_song
+  pillar        String   // education | career | lifestyle
   platform      String   // threads | website
   priorityScore Int      @default(50)
   priority      String   @default("medium") // high | medium | low

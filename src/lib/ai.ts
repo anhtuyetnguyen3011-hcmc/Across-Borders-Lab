@@ -29,28 +29,21 @@ export async function expandIdea(
   platform: Platform
 ): Promise<string[]> {
   const variants: Record<Pillar, string[]> = {
-    kinh_nghiem: [
-      `${ideaText} - a personal experience perspective`,
-      `${ideaText} - lessons learned after 1 year of trying`,
-      `${ideaText} - 5 common mistakes and how to avoid them`,
-      `${ideaText} - a beginner's checklist`,
-      `${ideaText} - expectations vs reality`,
-    ],
-    goc_nhin: [
-      `${ideaText} - why most people get this wrong`,
-      `${ideaText} - a contrarian perspective`,
-      `${ideaText} - a deeper analysis of this issue`,
-      `${ideaText} - connecting to current trends`,
-      `${ideaText} - the story behind the truth`,
-    ],
-    kien_thuc: [
+    education: [
       `${ideaText} - a detailed step-by-step guide`,
       `${ideaText} - essential tools and resources roundup`,
       `${ideaText} - a specific case study`,
       `${ideaText} - comparing different approaches`,
       `${ideaText} - infographic / quick summary`,
     ],
-    loi_song: [
+    career: [
+      `${ideaText} - a personal experience perspective`,
+      `${ideaText} - lessons learned after 1 year of trying`,
+      `${ideaText} - 5 common mistakes and how to avoid them`,
+      `${ideaText} - a contrarian perspective`,
+      `${ideaText} - expectations vs reality`,
+    ],
+    lifestyle: [
       `${ideaText} - a realistic daily routine`,
       `${ideaText} - an honest review after 3 months`,
       `${ideaText} - optimization tips for busy people`,
@@ -60,7 +53,7 @@ export async function expandIdea(
   };
 
   await simulateDelay(800);
-  return (variants[pillar] || variants.kinh_nghiem).slice(0, 4);
+  return (variants[pillar] || variants.education).slice(0, 4);
 }
 
 export async function generateHooks(
@@ -89,9 +82,7 @@ export async function generateDraft(
 
   const styleExamples = styleReferences && styleReferences.length > 0
     ? styleReferences.slice(0, 5).map((ref) => {
-        const sourceLabel = ref.source === "draft" ? `Draft (${ref.platform || "unknown"})` 
-          : ref.source === "link" ? "Link"
-          : "File";
+        const sourceLabel = ref.source === "link" ? "Link" : "File";
         return `\n\n--- STYLE EXAMPLE (Source: ${sourceLabel}) ---\nTitle: ${ref.title}\nBody: ${ref.body.slice(0, 500)}...`;
       }).join("")
     : "";
@@ -127,9 +118,7 @@ export async function repurposeDraft(
 
   const styleExamples = styleReferences && styleReferences.length > 0
     ? styleReferences.slice(0, 5).map((ref) => {
-        const sourceLabel = ref.source === "draft" ? `Draft (${ref.platform || "unknown"})` 
-          : ref.source === "link" ? "Link"
-          : "File";
+        const sourceLabel = ref.source === "link" ? "Link" : "File";
         return `\n\n--- STYLE EXAMPLE (Source: ${sourceLabel}) ---\nTitle: ${ref.title}\nBody: ${ref.body.slice(0, 500)}...`;
       }).join("")
     : "";
@@ -185,39 +174,39 @@ export async function getTrendingAngles(topic: string): Promise<TrendingAngle[]>
 
   if (topicLower.includes("ai") || topicLower.includes("artificial") || topicLower.includes("machine learning")) {
     angles.push(
-      { title: "How AI is Reshaping Content Creation in 2026", reason: "Rapid adoption of AI writing tools is changing creator workflows", pillar: "Knowledge" },
-      { title: "The Human Edge: Why Authenticity Matters More Than Ever in the AI Era", reason: "Audiences are craving genuine human perspectives amid AI-generated noise", pillar: "Perspective" },
-      { title: "My 3-Month Experiment Using Only AI Tools for Content", reason: "Hands-on experience reports are highly engaging and actionable", pillar: "Experience" },
-      { title: "AI Tools That Actually Saved Me 10 Hours a Week", reason: "Productivity hacks with concrete results drive strong engagement", pillar: "Knowledge" },
-      { title: "Balancing AI Efficiency with Creative Intuition", reason: "The debate around AI vs human creativity is trending across platforms", pillar: "Perspective" }
+      { title: "How AI is Reshaping Content Creation in 2026", reason: "Rapid adoption of AI writing tools is changing creator workflows", pillar: "Education" },
+      { title: "The Human Edge: Why Authenticity Matters More Than Ever in the AI Era", reason: "Audiences are craving genuine human perspectives amid AI-generated noise", pillar: "Education" },
+      { title: "My 3-Month Experiment Using Only AI Tools for Content", reason: "Hands-on experience reports are highly engaging and actionable", pillar: "Career" },
+      { title: "AI Tools That Actually Saved Me 10 Hours a Week", reason: "Productivity hacks with concrete results drive strong engagement", pillar: "Education" },
+      { title: "Balancing AI Efficiency with Creative Intuition", reason: "The debate around AI vs human creativity is trending across platforms", pillar: "Education" }
     );
   } else if (topicLower.includes("remote") || topicLower.includes("work from home") || topicLower.includes("digital nomad")) {
     angles.push(
-      { title: "Remote Work 2.0: What Actually Works After 3 Years", reason: "Long-term remote workers are sharing refined, battle-tested setups", pillar: "Experience" },
-      { title: "The Hidden Costs of Remote Work Nobody Talks About", reason: "Contrarian takes on popular trends consistently outperform", pillar: "Perspective" },
-      { title: "Building a Productive Home Office for Under $500", reason: "Budget-friendly practical guides have broad appeal", pillar: "Knowledge" },
+      { title: "Remote Work 2.0: What Actually Works After 3 Years", reason: "Long-term remote workers are sharing refined, battle-tested setups", pillar: "Career" },
+      { title: "The Hidden Costs of Remote Work Nobody Talks About", reason: "Contrarian takes on popular trends consistently outperform", pillar: "Education" },
+      { title: "Building a Productive Home Office for Under $500", reason: "Budget-friendly practical guides have broad appeal", pillar: "Education" },
       { title: "How I Manage Work-Life Boundaries as a Full-Time Remote Worker", reason: "Work-life balance content resonates strongly with remote audiences", pillar: "Lifestyle" }
     );
   } else if (topicLower.includes("freelance") || topicLower.includes("freelancer") || topicLower.includes("independent")) {
     angles.push(
-      { title: "Freelancing After Corporate: 5 Lessons I Learned the Hard Way", reason: "Career transition stories get high engagement from professionals", pillar: "Experience" },
-      { title: "Why Most Freelancers Fail in Their First Year", reason: "Cautionary content with actionable advice drives saves and shares", pillar: "Knowledge" },
-      { title: "Setting Your Freelance Rates: A No-Nonsense Guide", reason: "Pricing strategy is a perennial pain point for freelancers", pillar: "Knowledge" },
-      { title: "The Burnout Cycle: Why Freelancers Need to Rethink Hustle", reason: "Mental health in independent work is an emerging conversation", pillar: "Perspective" }
+      { title: "Freelancing After Corporate: 5 Lessons I Learned the Hard Way", reason: "Career transition stories get high engagement from professionals", pillar: "Career" },
+      { title: "Why Most Freelancers Fail in Their First Year", reason: "Cautionary content with actionable advice drives saves and shares", pillar: "Education" },
+      { title: "Setting Your Freelance Rates: A No-Nonsense Guide", reason: "Pricing strategy is a perennial pain point for freelancers", pillar: "Education" },
+      { title: "The Burnout Cycle: Why Freelancers Need to Rethink Hustle", reason: "Mental health in independent work is an emerging conversation", pillar: "Career" }
     );
   } else if (topicLower.includes("content") || topicLower.includes("creator") || topicLower.includes("social media")) {
     angles.push(
-      { title: "Content Strategy That Actually Works in 2026", reason: "Algorithm updates have shifted what works, creating demand for new strategies", pillar: "Knowledge" },
-      { title: "From 0 to 10K Followers: What I Did Differently", reason: "Growth case studies with specific tactics perform consistently well", pillar: "Experience" },
-      { title: "Quality vs Quantity: The Data Behind What Actually Works", reason: "Data-driven takes on content debates attract engagement from serious creators", pillar: "Perspective" },
-      { title: "Repurposing Content: Turn 1 Idea Into 10 Pieces", reason: "Efficiency-focused content creation guides are in high demand", pillar: "Knowledge" }
+      { title: "Content Strategy That Actually Works in 2026", reason: "Algorithm updates have shifted what works, creating demand for new strategies", pillar: "Education" },
+      { title: "From 0 to 10K Followers: What I Did Differently", reason: "Growth case studies with specific tactics perform consistently well", pillar: "Career" },
+      { title: "Quality vs Quantity: The Data Behind What Actually Works", reason: "Data-driven takes on content debates attract engagement from serious creators", pillar: "Education" },
+      { title: "Repurposing Content: Turn 1 Idea Into 10 Pieces", reason: "Efficiency-focused content creation guides are in high demand", pillar: "Education" }
     );
   } else {
     angles.push(
-      { title: `The Beginner's Guide to ${topic}`, reason: "Foundational guides attract steady search and social traffic", pillar: "Knowledge" },
-      { title: `Why ${topic} Matters More Than You Think`, reason: "Awareness-building content with a fresh angle drives discovery", pillar: "Perspective" },
-      { title: `My Personal Journey With ${topic}`, reason: "First-person experience stories build trust and connection", pillar: "Experience" },
-      { title: `5 Common Mistakes in ${topic} and How to Avoid Them`, reason: "Mistake-based content consistently outperforms generic advice", pillar: "Knowledge" },
+      { title: `The Beginner's Guide to ${topic}`, reason: "Foundational guides attract steady search and social traffic", pillar: "Education" },
+      { title: `Why ${topic} Matters More Than You Think`, reason: "Awareness-building content with a fresh angle drives discovery", pillar: "Education" },
+      { title: `My Personal Journey With ${topic}`, reason: "First-person experience stories build trust and connection", pillar: "Career" },
+      { title: `5 Common Mistakes in ${topic} and How to Avoid Them`, reason: "Mistake-based content consistently outperforms generic advice", pillar: "Education" },
       { title: `How ${topic} Fits Into a Balanced Lifestyle`, reason: "Connecting topics to lifestyle resonates with broader audiences", pillar: "Lifestyle" }
     );
   }

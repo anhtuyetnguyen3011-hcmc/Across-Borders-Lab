@@ -49,9 +49,8 @@ export async function sendReviewNotification(
   review: ReviewItem
 ): Promise<boolean> {
   const platform = draft.platform === "threads" ? "Threads" : "Website";
-  const pillar = draft.pillar === "kinh_nghiem" ? "Experience" 
-    : draft.pillar === "goc_nhin" ? "Perspective"
-    : draft.pillar === "kien_thuc" ? "Knowledge"
+  const pillar = draft.pillar === "education" ? "Education" 
+    : draft.pillar === "career" ? "Career"
     : "Lifestyle";
 
   const riskNotes = review.aiRiskNotes.length > 0

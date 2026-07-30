@@ -47,7 +47,7 @@ export function getAnalyticsSummary(): AnalyticsSummary {
     });
   });
 
-  let bestPillar = { pillar: "kinh_nghiem" as Pillar, engagementRate: 0 };
+  let bestPillar = { pillar: "education" as Pillar, engagementRate: 0 };
   const pillarPerformance: AnalyticsSummary["pillarPerformance"] = [];
 
   pillarMap.forEach((val, pillar) => {

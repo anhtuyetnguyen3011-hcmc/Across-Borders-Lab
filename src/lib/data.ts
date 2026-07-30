@@ -16,7 +16,7 @@ let ideas: Idea[] = [
     id: "idea-1",
     text: "5 bài học từ việc chuyển sang làm freelance sau 5 năm corporate",
     source: "manual",
-    pillar: "kinh_nghiem",
+    pillar: "career",
     platform: "threads",
     priorityScore: 92,
     priority: "high",
@@ -26,7 +26,7 @@ let ideas: Idea[] = [
     id: "idea-2",
     text: "Tại sao mình chọn sống ở Đà Nẵng thay vì Sài Gòn cho người làm remote",
     source: "manual",
-    pillar: "loi_song",
+    pillar: "lifestyle",
     platform: "website",
     priorityScore: 85,
     priority: "high",
@@ -36,7 +36,7 @@ let ideas: Idea[] = [
     id: "idea-3",
     text: "Review công cụ AI giúp tăng năng suất 3x cho content creator",
     source: "link",
-    pillar: "kien_thuc",
+    pillar: "education",
     platform: "threads",
     priorityScore: 78,
     priority: "medium",
@@ -47,7 +47,7 @@ let ideas: Idea[] = [
     id: "idea-4",
     text: "Quan điểm: Tại sao 'hustle culture' đang giết chết thế hệ trẻ",
     source: "trend",
-    pillar: "goc_nhin",
+    pillar: "education",
     platform: "website",
     priorityScore: 88,
     priority: "high",
@@ -57,7 +57,7 @@ let ideas: Idea[] = [
     id: "idea-5",
     text: "Chi tiết cách mình quản lý tài chính cá nhân bằng spreadsheet",
     source: "manual",
-    pillar: "kien_thuc",
+    pillar: "education",
     platform: "website",
     priorityScore: 65,
     priority: "medium",
@@ -67,7 +67,7 @@ let ideas: Idea[] = [
     id: "idea-6",
     text: "5 cuốn sách thay đổi tư duy mình trong năm 2026",
     source: "audio",
-    pillar: "kinh_nghiem",
+    pillar: "career",
     platform: "threads",
     priorityScore: 71,
     priority: "medium",
@@ -77,7 +77,7 @@ let ideas: Idea[] = [
     id: "idea-7",
     text: "Một ngày làm việc của mình: 6h productivity, 2h family, 2h learning",
     source: "manual",
-    pillar: "loi_song",
+    pillar: "lifestyle",
     platform: "threads",
     priorityScore: 60,
     priority: "low",
@@ -90,7 +90,7 @@ const drafts: Draft[] = [
     id: "draft-1",
     ideaId: "idea-1",
     platform: "threads",
-    pillar: "kinh_nghiem",
+    pillar: "career",
     title: "5 bài học từ Freelance sau 5 năm Corporate",
     hook: "Sau 5 năm ngồi văn phòng, mình quyết định nghỉ việc. Đây là 5 điều mình ước ai nói cho mình sớm hơn.",
     body: `1️⃣ Income không ổn định ≠ income thấp\n\nTháng đầu tiên freelance mình kiếm được 40 triệu. Tháng tiếp theo chỉ 8 triệu. Nhưng trung bình năm đầu mình vẫn hơn lúc đi làm.\n\n2️⃣ Bạn cần discipline hơn cả lúc đi làm\n\nKhông ai bắt bạn schedule 9h sáng. Nhưng nếu bạn không tự kỷ luật, 1 năm sau bạn sẽ ở trong phòng ngủ lúc 2h chiều vẫn còn pyjamas.\n\n3️⃣ Network = Net worth\n\n80% khách hàng mình đến từ referral. Invest vào relationships.\n\n4️⃣ Học cách nói "không"\n\nClient xấu = poison. 10 năm kinh nghiệm cho mình bài học đắt nhất.\n\n5️⃣ Mental health là priority #1\n\nBurnout không có gì cool cả. Freelance cho bạn freedom, nhưng cũng cho bạn freedom to destroy yourself.`,
@@ -121,7 +121,7 @@ const drafts: Draft[] = [
     id: "draft-2",
     ideaId: "idea-2",
     platform: "website",
-    pillar: "loi_song",
+    pillar: "lifestyle",
     title: "Tại Sao Mình Chọn Đà Nẵng: Cuộc Sống Remote Worker Ở Việt Nam",
     hook: "Sau 2 năm sống và làm việc từ cả Sài Gòn, Hà Nội, lẫn Đà Nẵng, mình đã đưa ra quyết định cuối cùng.",
     body: `## Vấn đề với Sài Gòn\n\nTraffic, khói bụi, chi phí leo thang... \n\n## Tại sao Đà Nẵng?\n\nChi phí sống thấp hơn 40%, internet fiber nhanh, cộng đồng digital nomad đang phát triển mạnh.\n\n## Schedule hàng ngày của mình\n\n5h30 - Thức dậy, chạy bộ ở bãi biển\n7h00 - Bắt đầu work\n12h00 - Lunch + break\n14h00 - Afternoon session\n17h00 - Off work, explore\n20h00 - Reading / learning`,
@@ -148,7 +148,7 @@ const drafts: Draft[] = [
     id: "draft-3",
     ideaId: "idea-3",
     platform: "threads",
-    pillar: "kien_thuc",
+    pillar: "education",
     title: "5 AI Tools Tăng Năng Suất 3x",
     hook: "Mình đã test 20+ công cụ AI trong 6 tháng. Chỉ 5 tools này mới thực sự đáng tiền.",
     body: `1️⃣ Cursor - Viết code 3x nhanh hơn\n\nAI coding assistant tốt nhất hiện tại. Không phải copilot.\n\n2️⃣ Notion AI - Quản lý knowledge\n\nTích hợp AI vào workflow quản lý project.\n\n3️⃣ Descript - Edit video/audio\n\nTranscription + editing trong 1 tool.\n\n4️⃣ Perplexity - Research\n\nGoogle replacement cho người làm nội dung.\n\n5️⃣ Opus Clip - Repurpose content\n\nBiến video dài thành shorts/threads tự động.`,
@@ -166,7 +166,7 @@ const drafts: Draft[] = [
     id: "draft-4",
     ideaId: "idea-4",
     platform: "website",
-    pillar: "goc_nhin",
+    pillar: "education",
     title: "Hustle Culture Đang Giết Chết Thế Hệ Trẻ: Tại Sao Mình Nghĩ vậy",
     hook: "Thế hệ chúng ta bị ám ảnh bởi 'hustle' đến mức quên mất rằng nghỉ ngơi cũng là productive.",
     body: "Full article about hustle culture critique...",
@@ -227,7 +227,7 @@ const performanceMetrics: PerformanceMetric[] = [
     scheduledPostId: "sched-old-1",
     draftId: "draft-old-1",
     platform: "threads",
-    pillar: "kinh_nghiem",
+    pillar: "career",
     views: 12450,
     likes: 890,
     comments: 134,
@@ -239,7 +239,7 @@ const performanceMetrics: PerformanceMetric[] = [
     scheduledPostId: "sched-old-2",
     draftId: "draft-old-2",
     platform: "website",
-    pillar: "loi_song",
+    pillar: "lifestyle",
     views: 8900,
     likes: 567,
     comments: 89,
@@ -251,7 +251,7 @@ const performanceMetrics: PerformanceMetric[] = [
     scheduledPostId: "sched-old-3",
     draftId: "draft-old-3",
     platform: "threads",
-    pillar: "kien_thuc",
+    pillar: "education",
     views: 6780,
     likes: 445,
     comments: 67,
@@ -263,7 +263,7 @@ const performanceMetrics: PerformanceMetric[] = [
     scheduledPostId: "sched-old-4",
     draftId: "draft-old-4",
     platform: "threads",
-    pillar: "goc_nhin",
+    pillar: "education",
     views: 15200,
     likes: 1100,
     comments: 203,
@@ -275,7 +275,7 @@ const performanceMetrics: PerformanceMetric[] = [
     scheduledPostId: "sched-old-5",
     draftId: "draft-old-5",
     platform: "website",
-    pillar: "kinh_nghiem",
+    pillar: "career",
     views: 4300,
     likes: 312,
     comments: 45,
@@ -287,7 +287,7 @@ const performanceMetrics: PerformanceMetric[] = [
     scheduledPostId: "sched-old-6",
     draftId: "draft-old-6",
     platform: "threads",
-    pillar: "loi_song",
+    pillar: "lifestyle",
     views: 21000,
     likes: 1560,
     comments: 278,
@@ -299,7 +299,7 @@ const performanceMetrics: PerformanceMetric[] = [
     scheduledPostId: "sched-old-7",
     draftId: "draft-old-7",
     platform: "website",
-    pillar: "goc_nhin",
+    pillar: "education",
     views: 9800,
     likes: 723,
     comments: 112,
@@ -387,19 +387,6 @@ export function getDrafts(): Draft[] {
   return [...drafts].sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   );
-}
-
-export function getStyleReferenceDrafts(): Draft[] {
-  const refs = drafts.filter((d) => d.isStyleReference);
-  if (refs.length > 0) return refs;
-  
-  return [...drafts]
-    .sort((a, b) => {
-      const aViews = performanceMetrics.find((m) => m.draftId === a.id)?.views || 0;
-      const bViews = performanceMetrics.find((m) => m.draftId === b.id)?.views || 0;
-      return bViews - aViews;
-    })
-    .slice(0, 5);
 }
 
 export function getDraft(id: string): Draft | undefined {
@@ -557,49 +544,51 @@ export interface UnifiedStyleExample {
   pillar?: Pillar;
 }
 
+export interface CalendarDayEntry {
+  date: string;
+  dayOfMonth: number;
+  posts: { id: string; title: string; status: "published" | "queued"; time: string }[];
+  publishedCount: number;
+  scheduledCount: number;
+}
+
+export function getEditorialCalendar(year: number, month: number): CalendarDayEntry[] {
+  const entries: CalendarDayEntry[] = [];
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const monthPosts = scheduledPosts.filter((sp) => {
+    const d = new Date(sp.scheduledTime);
+    return d.getFullYear() === year && d.getMonth() === month - 1;
+  });
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const dayPosts = monthPosts.filter((sp) => {
+      const d = new Date(sp.scheduledTime);
+      return d.getDate() === day;
+    });
+    entries.push({
+      date: dayStr,
+      dayOfMonth: day,
+      posts: dayPosts.map((sp) => ({
+        id: sp.id,
+        title: drafts.find((d) => d.id === sp.draftId)?.title || "Untitled",
+        status: sp.publishStatus as "published" | "queued",
+        time: new Date(sp.scheduledTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      })),
+      publishedCount: dayPosts.filter((sp) => sp.publishStatus === "published").length,
+      scheduledCount: dayPosts.filter((sp) => sp.publishStatus === "queued").length,
+    });
+  }
+
+  return entries;
+}
+
 export function getUnifiedStyleReferences(): UnifiedStyleExample[] {
-  const examples: UnifiedStyleExample[] = [];
-
-  for (const sample of styleSamples) {
-    examples.push({
-      id: sample.id,
-      source: sample.sourceType,
-      title: sample.title || "Sample",
-      body: sample.extractedText,
-    });
-  }
-
-  const flaggedDrafts = drafts.filter((d) => d.isStyleReference);
-  for (const draft of flaggedDrafts) {
-    examples.push({
-      id: draft.id,
-      source: "draft",
-      title: draft.title,
-      body: draft.body,
-      platform: draft.platform,
-      pillar: draft.pillar,
-    });
-  }
-
-  if (examples.length === 0) {
-    const topDrafts = [...drafts]
-      .sort((a, b) => {
-        const aViews = performanceMetrics.find((m) => m.draftId === a.id)?.views || 0;
-        const bViews = performanceMetrics.find((m) => m.draftId === b.id)?.views || 0;
-        return bViews - aViews;
-      })
-      .slice(0, 5);
-    for (const draft of topDrafts) {
-      examples.push({
-        id: draft.id,
-        source: "draft",
-        title: draft.title,
-        body: draft.body,
-        platform: draft.platform,
-        pillar: draft.pillar,
-      });
-    }
-  }
-
-  return examples;
+  return styleSamples.map((sample) => ({
+    id: sample.id,
+    source: sample.sourceType,
+    title: sample.title || "Sample",
+    body: sample.extractedText,
+  }));
 }

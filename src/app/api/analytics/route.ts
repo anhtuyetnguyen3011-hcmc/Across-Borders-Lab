@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAnalyticsSummary } from "@/lib/analytics";
 import { addIdea, addDraft, getDraft, getUnifiedStyleReferences } from "@/lib/data";
 import { generateDraft } from "@/lib/ai";
+import { Pillar } from "@/lib/types";
 
 export async function GET() {
   return NextResponse.json(getAnalyticsSummary());
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
 
     const styleRefs = getUnifiedStyleReferences();
     const platform = topPost.platform as "threads" | "website";
-    const pillar = topPost.pillar as "kinh_nghiem" | "goc_nhin" | "kien_thuc" | "loi_song";
+    const pillar = topPost.pillar as Pillar;
 
     const seedText = topDraft
       ? `Mirror this top-performing post's angle, hook style, and structure:\nTitle: ${topDraft.title}\nHook: ${topDraft.hook}\nBody preview: ${topDraft.body.slice(0, 300)}...\nMetrics: ${topPost.views} views, ${topPost.engagementRate}% engagement`

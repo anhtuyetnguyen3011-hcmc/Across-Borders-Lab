@@ -1,5 +1,5 @@
 export type Platform = "threads" | "website";
-export type Pillar = "kinh_nghiem" | "goc_nhin" | "kien_thuc" | "loi_song";
+export type Pillar = "education" | "career" | "lifestyle";
 export type IdeaSource = "manual" | "audio" | "link" | "trend";
 export type IdeaPriority = "high" | "medium" | "low";
 export type DraftStatus = "draft" | "needs_review" | "needs_edit" | "approved";
@@ -98,10 +98,9 @@ export interface TrendingTopic {
 }
 
 export const PILLAR_LABELS: Record<Pillar, string> = {
-  kinh_nghiem: "Experience",
-  goc_nhin: "Perspective",
-  kien_thuc: "Knowledge",
-  loi_song: "Lifestyle",
+  education: "Education",
+  career: "Career",
+  lifestyle: "Lifestyle",
 };
 
 export const PLATFORM_LABELS: Record<Platform, string> = {

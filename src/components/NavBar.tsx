@@ -4,12 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const tabs = [
-  { href: "/ideas", label: "Ideas", icon: "💡" },
-  { href: "/planning", label: "Planning", icon: "📋" },
   { href: "/writing", label: "AI Writing", icon: "✍️" },
-  { href: "/style-references", label: "Style Reference", icon: "🎨" },
-  { href: "/review", label: "Review & Edit", icon: "🔍" },
-  { href: "/schedule", label: "Schedule & Status", icon: "📅" },
+  { href: "/schedule", label: "Review & Schedule", icon: "🔍" },
   { href: "/analytics", label: "Analytics", icon: "📊" },
 ];
 

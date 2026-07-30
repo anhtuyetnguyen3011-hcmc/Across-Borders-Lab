@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getDrafts, getScheduledPosts, getPerformanceMetrics } from "@/lib/data";
-import { Platform } from "@/lib/types";
+import { Platform, Pillar } from "@/lib/types";
 
 interface ExcelRow {
   post_reference: string;
@@ -20,7 +20,7 @@ interface UploadResult {
   errors: string[];
 }
 
-function findMatchingDraft(reference: string) {
+function findMatchingDraft(reference: string): { draftId: string; platform: Platform; pillar: Pillar } | null {
   const drafts = getDrafts();
   const normalizedRef = reference.toLowerCase().trim();
   
@@ -31,7 +31,7 @@ function findMatchingDraft(reference: string) {
   );
   
   if (draft) {
-    return { draftId: draft.id, platform: draft.platform as Platform, pillar: draft.pillar };
+    return { draftId: draft.id, platform: draft.platform as Platform, pillar: draft.pillar as Pillar };
   }
   
   const scheduled = getScheduledPosts();
@@ -44,7 +44,7 @@ function findMatchingDraft(reference: string) {
     return {
       draftId: schedPost.draftId,
       platform: schedPost.platform,
-      pillar: draftForSched?.pillar || "kinh_nghiem",
+      pillar: (draftForSched?.pillar || "education") as Pillar,
     };
   }
   
@@ -130,7 +130,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           scheduledPostId: scheduledPost?.id || `sched-${match.draftId}`,
           draftId: match.draftId,
           platform: platformLower as Platform,
-          pillar: match.pillar,
+          pillar: match.pillar as Pillar,
           views: row.views,
           likes: row.likes || 0,
           comments: row.comments || 0,
