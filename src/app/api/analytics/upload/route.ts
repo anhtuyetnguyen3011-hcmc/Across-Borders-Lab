@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { getDrafts, getScheduledPosts, getPerformanceMetrics } from "@/lib/data";
+import prisma from "@/lib/db";
 import { Platform, Pillar } from "@/lib/types";
 
 interface ExcelRow {
@@ -20,34 +20,40 @@ interface UploadResult {
   errors: string[];
 }
 
-function findMatchingDraft(reference: string): { draftId: string; platform: Platform; pillar: Pillar } | null {
-  const drafts = getDrafts();
+async function findMatchingDraft(reference: string): Promise<{ draftId: string; platform: Platform; pillar: Pillar } | null> {
   const normalizedRef = reference.toLowerCase().trim();
-  
-  const draft = drafts.find(
-    (d) =>
-      d.title.toLowerCase().trim() === normalizedRef ||
-      d.id === normalizedRef
-  );
-  
+
+  const draft = await prisma.draft.findFirst({
+    where: {
+      OR: [
+        { title: { equals: normalizedRef, mode: "insensitive" } },
+        { id: normalizedRef },
+      ],
+    },
+  });
+
   if (draft) {
     return { draftId: draft.id, platform: draft.platform as Platform, pillar: draft.pillar as Pillar };
   }
-  
-  const scheduled = getScheduledPosts();
-  const schedPost = scheduled.find(
-    (s) => s.draftId === normalizedRef || s.id === normalizedRef
-  );
-  
+
+  const schedPost = await prisma.scheduledPost.findFirst({
+    where: {
+      OR: [
+        { draftId: normalizedRef },
+        { id: normalizedRef },
+      ],
+    },
+  });
+
   if (schedPost) {
-    const draftForSched = drafts.find((d) => d.id === schedPost.draftId);
+    const draftForSched = await prisma.draft.findUnique({ where: { id: schedPost.draftId } });
     return {
       draftId: schedPost.draftId,
-      platform: schedPost.platform,
+      platform: schedPost.platform as Platform,
       pillar: (draftForSched?.pillar || "education") as Pillar,
     };
   }
-  
+
   return null;
 }
 
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
-    
+
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
@@ -79,8 +85,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       errors: [],
     };
 
-    const existingMetrics = getPerformanceMetrics();
-
     for (const row of rows) {
       if (!row.post_reference || !row.platform || !row.views) {
         result.errors.push(`Invalid data: ${JSON.stringify(row)}`);
@@ -93,7 +97,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
-      const match = findMatchingDraft(row.post_reference);
+      const match = await findMatchingDraft(row.post_reference);
       if (!match) {
         result.unmatched.push({ row, reason: `Post not found: ${row.post_reference}` });
         continue;
@@ -101,41 +105,46 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       const captureDate = row.date ? new Date(row.date) : new Date();
       const dateStr = captureDate.toISOString().split("T")[0];
-      
-      const existingMetric = existingMetrics.find(
-        (m) =>
-          m.draftId === match.draftId &&
-          m.capturedAt.split("T")[0] === dateStr
-      );
+
+      const existingMetric = await prisma.performanceMetric.findFirst({
+        where: {
+          draftId: match.draftId,
+          capturedAt: {
+            gte: new Date(dateStr + "T00:00:00.000Z"),
+            lt: new Date(dateStr + "T23:59:59.999Z"),
+          },
+        },
+      });
 
       if (existingMetric) {
-        const metricIndex = existingMetrics.findIndex((m) => m.id === existingMetric.id);
-        if (metricIndex !== -1) {
-          const updated = {
-            ...existingMetric,
+        await prisma.performanceMetric.update({
+          where: { id: existingMetric.id },
+          data: {
             views: row.views,
             likes: row.likes || 0,
             comments: row.comments || 0,
             engagementRate: calculateEngagementRate(row.views, row.likes || 0, row.comments || 0),
-            capturedAt: captureDate.toISOString(),
-          };
-          existingMetrics[metricIndex] = updated;
-        }
+            capturedAt: captureDate,
+          },
+        });
         result.duplicates++;
       } else {
-        const scheduledPost = getScheduledPosts().find((s) => s.draftId === match.draftId);
-        
-        existingMetrics.push({
-          id: `metric-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          scheduledPostId: scheduledPost?.id || `sched-${match.draftId}`,
-          draftId: match.draftId,
-          platform: platformLower as Platform,
-          pillar: match.pillar as Pillar,
-          views: row.views,
-          likes: row.likes || 0,
-          comments: row.comments || 0,
-          engagementRate: calculateEngagementRate(row.views, row.likes || 0, row.comments || 0),
-          capturedAt: captureDate.toISOString(),
+        const scheduledPost = await prisma.scheduledPost.findFirst({
+          where: { draftId: match.draftId },
+        });
+
+        await prisma.performanceMetric.create({
+          data: {
+            scheduledPostId: scheduledPost?.id || `sched-${match.draftId}`,
+            draftId: match.draftId,
+            platform: platformLower,
+            pillar: match.pillar,
+            views: row.views,
+            likes: row.likes || 0,
+            comments: row.comments || 0,
+            engagementRate: calculateEngagementRate(row.views, row.likes || 0, row.comments || 0),
+            capturedAt: captureDate,
+          },
         });
       }
 
@@ -162,12 +171,12 @@ export async function GET() {
     ["5 bài học từ Freelance", "threads", 10000, 800, 150, "2026-07-20"],
     ["Tại Sao Mình Chọn Đà Nẵng", "website", 8000, 500, 100, "2026-07-20"],
   ];
-  
+
   const sheet = XLSX.utils.aoa_to_sheet([headers, ...sampleData]);
   XLSX.utils.book_append_sheet(workbook, sheet, "Template");
-  
+
   const buffer = XLSX.write(workbook, { type: "array", bookType: "xlsx" });
-  
+
   return new Response(buffer, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -3,7 +3,7 @@ import { getScheduledPosts, addScheduledPost, updateScheduledPost } from "@/lib/
 import { publishers } from "@/lib/publisher";
 
 export async function GET() {
-  return NextResponse.json(getScheduledPosts());
+  return NextResponse.json(await getScheduledPosts());
 }
 
 export async function POST(req: NextRequest) {
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   }
 
-  const post = addScheduledPost({
+  const post = await addScheduledPost({
     draftId: body.draftId,
     platform: body.platform,
     scheduledTime: body.scheduledTime,
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const body = await req.json();
-  const post = updateScheduledPost(body.id, body);
+  const post = await updateScheduledPost(body.id, body);
   if (!post) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(post);
 }

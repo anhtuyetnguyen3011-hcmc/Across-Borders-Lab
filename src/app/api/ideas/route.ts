@@ -3,7 +3,7 @@ import { getIdeas, addIdea, deleteIdea } from "@/lib/data";
 import { expandIdea } from "@/lib/ai";
 
 export async function GET() {
-  return NextResponse.json(getIdeas());
+  return NextResponse.json(await getIdeas());
 }
 
 export async function POST(req: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ variants });
   }
 
-  const idea = addIdea({
+  const idea = await addIdea({
     text: body.text,
     source: body.source || "manual",
     pillar: body.pillar,
@@ -28,6 +28,6 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
-  const deleted = deleteIdea(id);
+  const deleted = await deleteIdea(id);
   return NextResponse.json({ deleted });
 }

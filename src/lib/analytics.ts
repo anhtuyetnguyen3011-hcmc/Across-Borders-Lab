@@ -16,8 +16,8 @@ export interface AnalyticsSummary {
   pillarPerformance: { pillar: Pillar; avgEngagement: number; totalViews: number }[];
 }
 
-export function getAnalyticsSummary(): AnalyticsSummary {
-  const metrics = getPerformanceMetrics();
+export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
+  const metrics = await getPerformanceMetrics();
   const now = Date.now();
   const d7 = now - 86400000 * 7;
   const d30 = now - 86400000 * 30;

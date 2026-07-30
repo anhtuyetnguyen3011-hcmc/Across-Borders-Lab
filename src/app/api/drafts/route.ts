@@ -3,20 +3,20 @@ import { getDrafts, addDraft, updateDraft, getUnifiedStyleReferences } from "@/l
 import { generateDraft, repurposeDraft, generateHooks } from "@/lib/ai";
 
 export async function GET() {
-  return NextResponse.json(getDrafts());
+  return NextResponse.json(await getDrafts());
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
 
   if (body.action === "generate") {
-    const styleRefs = getUnifiedStyleReferences();
+    const styleRefs = await getUnifiedStyleReferences();
     const result = await generateDraft(body.idea, body.platform, body.pillar, body.hook, styleRefs);
     return NextResponse.json(result);
   }
 
   if (body.action === "repurpose") {
-    const styleRefs = getUnifiedStyleReferences();
+    const styleRefs = await getUnifiedStyleReferences();
     const result = await repurposeDraft(body.body, body.fromPlatform, body.toPlatform, styleRefs);
     return NextResponse.json(result);
   }
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ hooks });
   }
 
-  const draft = addDraft({
+  const draft = await addDraft({
     ideaId: body.ideaId,
     platform: body.platform,
     pillar: body.pillar,
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const body = await req.json();
-  const draft = updateDraft(body.id, body);
+  const draft = await updateDraft(body.id, body);
   if (!draft) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(draft);
 }

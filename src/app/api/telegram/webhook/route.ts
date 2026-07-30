@@ -45,16 +45,17 @@ export async function POST(req: NextRequest) {
     
     if (data.startsWith("approve_")) {
       const reviewId = data.replace("approve_", "");
-      const review = getReview(reviewId);
+      const review = await getReview(reviewId);
       
       if (review) {
-        updateReview(reviewId, { status: "approved" });
-        updateDraft(review.draftId, { status: "approved" });
+        await updateReview(reviewId, { status: "approved" });
+        await updateDraft(review.draftId, { status: "approved" });
         
         const scheduledTime = getNextAvailableSlot();
-        addScheduledPost({
+        const draft = await getDraft(review.draftId);
+        await addScheduledPost({
           draftId: review.draftId,
-          platform: getDraft(review.draftId)?.platform || "threads",
+          platform: draft?.platform || "threads",
           scheduledTime: scheduledTime.toISOString(),
           publishStatus: "queued",
         });
@@ -65,11 +66,11 @@ export async function POST(req: NextRequest) {
     
     if (data.startsWith("reject_")) {
       const reviewId = data.replace("reject_", "");
-      const review = getReview(reviewId);
+      const review = await getReview(reviewId);
       
       if (review) {
-        updateReview(reviewId, { status: "needs_edit", reviewerComments: "Revision requested via Telegram" });
-        updateDraft(review.draftId, { status: "needs_edit" });
+        await updateReview(reviewId, { status: "needs_edit", reviewerComments: "Revision requested via Telegram" });
+        await updateDraft(review.draftId, { status: "needs_edit" });
         
         await sendApprovalConfirmation(reviewId, false, "Revision requested");
       }
@@ -97,7 +98,7 @@ You'll receive notifications with Approve/Request Edit buttons when new drafts a
     }
     
     if (text.startsWith("/status")) {
-      const posts = getScheduledPosts();
+      const posts = await getScheduledPosts();
       const queued = posts.filter((p) => p.publishStatus === "queued").length;
       const published = posts.filter((p) => p.publishStatus === "published").length;
       const failed = posts.filter((p) => p.publishStatus === "failed").length;

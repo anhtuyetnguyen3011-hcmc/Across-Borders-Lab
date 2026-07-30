@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { addStyleSample, deleteStyleSample, getUnifiedStyleReferences } from "@/lib/data";
 
 export async function GET() {
-  return NextResponse.json(getUnifiedStyleReferences());
+  return NextResponse.json(await getUnifiedStyleReferences());
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
 
   if (body.action === "add-sample") {
-    const sample = addStyleSample({
+    const sample = await addStyleSample({
       sourceType: body.sourceType,
       sourceUrl: body.sourceUrl || null,
       extractedText: body.extractedText,
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.action === "delete-sample") {
-    const deleted = deleteStyleSample(body.sampleId);
+    const deleted = await deleteStyleSample(body.sampleId);
     if (!deleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ success: true });
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   Idea,
   Draft,
@@ -30,6 +31,7 @@ const SOURCE_BADGES: Record<string, { label: string; color: string }> = {
 };
 
 export default function CombinedWritingPage() {
+  const router = useRouter();
   const writingRef = useRef<HTMLDivElement>(null);
 
   // ─── Ideas state ───
@@ -349,6 +351,31 @@ export default function CombinedWritingPage() {
     const updated = await res.json();
     setDrafts((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
     setSelectedDraft(updated);
+  };
+
+  const handleSubmitForReview = async () => {
+    if (!selectedDraft) return;
+    const res = await fetch("/api/drafts", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: selectedDraft.id,
+        status: "needs_review",
+      }),
+    });
+    if (!res.ok) return;
+    setDrafts((prev) =>
+      prev.map((d) =>
+        d.id === selectedDraft.id ? { ...d, status: "needs_review" as const } : d
+      )
+    );
+    setSelectedDraft((prev) => (prev ? { ...prev, status: "needs_review" as const } : null));
+    await fetch("/api/reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ draftId: selectedDraft.id }),
+    });
+    router.push("/schedule");
   };
 
   const handleSelectDraft = (draft: Draft) => {
@@ -723,11 +750,16 @@ export default function CombinedWritingPage() {
                     <textarea value={editingBody} onChange={(e) => setEditingBody(e.target.value)} className="min-h-[300px] font-mono text-sm" />
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <button onClick={handleGenerate} disabled={generating} className="gradient-btn">
                       {generating ? "Generating..." : "✨ Generate with AI"}
                     </button>
                     <button onClick={handleSave} className="px-4 py-2 rounded-xl bg-green-600 text-white font-medium hover:bg-green-700 transition">Save Changes</button>
+                    {selectedDraft.status === "draft" && (
+                      <button onClick={handleSubmitForReview} className="px-4 py-2 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition">
+                        Submit for Review
+                      </button>
+                    )}
                     <button onClick={() => setShowVersions(!showVersions)} className="px-4 py-2 rounded-xl border border-[var(--card-border)] text-[var(--muted)] hover:text-[var(--foreground)] transition">
                       History v{selectedDraft.version}
                     </button>

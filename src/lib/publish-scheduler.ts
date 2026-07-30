@@ -4,7 +4,7 @@ import { sendPublishConfirmation, isTelegramConfigured } from "./telegram";
 
 export async function checkAndPublishDuePosts(): Promise<{ published: number; failed: number }> {
   const now = new Date();
-  const posts = getScheduledPosts();
+  const posts = await getScheduledPosts();
   const duePosts = posts.filter(
     (p) => p.publishStatus === "queued" && new Date(p.scheduledTime) <= now
   );
@@ -13,7 +13,7 @@ export async function checkAndPublishDuePosts(): Promise<{ published: number; fa
   let failed = 0;
 
   for (const post of duePosts) {
-    const draft = getDraft(post.draftId);
+    const draft = await getDraft(post.draftId);
     if (!draft) {
       updateScheduledPost(post.id, {
         publishStatus: "failed",
