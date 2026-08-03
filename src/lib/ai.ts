@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { Platform, Pillar } from "./types";
 import { UnifiedStyleExample } from "./data";
 
@@ -8,8 +9,8 @@ export interface AIConfig {
 }
 
 const defaultConfig: AIConfig = {
-  model: "gpt-4o",
-  provider: "openai",
+  model: "claude-sonnet-4-6",
+  provider: "anthropic",
   temperature: 0.7,
 };
 
@@ -21,6 +22,76 @@ export function getAIConfig(): AIConfig {
 
 export function setAIConfig(newConfig: Partial<AIConfig>): void {
   config = { ...config, ...newConfig };
+}
+
+let client: Anthropic | null = null;
+
+function getClient(): Anthropic {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "ANTHROPIC_API_KEY is not set. Add it to your environment to use AI generation."
+    );
+  }
+  if (!client) {
+    client = new Anthropic({ apiKey });
+  }
+  return client;
+}
+
+async function complete(system: string, user: string): Promise<string> {
+  try {
+    const response = await getClient().messages.create({
+      model: config.model,
+      max_tokens: 4096,
+      temperature: config.temperature,
+      system,
+      messages: [{ role: "user", content: user }],
+    });
+    return response.content
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("\n")
+      .trim();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`AI generation failed (${config.model}): ${message}`);
+  }
+}
+
+function buildStyleReferenceBlock(styleReferences?: UnifiedStyleExample[]): string {
+  if (!styleReferences || styleReferences.length === 0) return "";
+  const examples = styleReferences
+    .slice(0, 5)
+    .map((ref) => {
+      const sourceLabel = ref.source === "link" ? "Link" : "File";
+      const title = ref.title ? `\nTitle: ${ref.title}` : "";
+      return `[Source: ${sourceLabel}]${title}\n${ref.body}`;
+    })
+    .join("\n\n");
+  return `=== STYLE REFERENCE ===\n${examples}\n=== END STYLE REFERENCE ===`;
+}
+
+function styleInstruction(styleBlock: string): string {
+  if (!styleBlock) return "";
+  return (
+    "\n\nBelow are style references from the creator's published work. " +
+    "Analyze their TONE, RHYTHM, and STRUCTURE only. " +
+    "Never copy, quote, or paraphrase their content, wording, or specific details. " +
+    "They concern a DIFFERENT topic than the one you are asked to write; treat them as a different topic. " +
+    "Your output must be entirely original text and must never reproduce any of the reference text.\n\n" +
+    styleBlock
+  );
+}
+
+function extractField(raw: string, label: string): string {
+  const match = raw.match(new RegExp(`^${label}:\\s*(.+?)\\s*$`, "m"));
+  return match ? match[1].trim() : "";
+}
+
+function extractBody(raw: string): string {
+  const bodyIndex = raw.search(/^BODY:\s*/m);
+  if (bodyIndex === -1) return raw.trim();
+  return raw.slice(bodyIndex).replace(/^BODY:\s*/m, "").trim();
 }
 
 export async function expandIdea(
@@ -78,34 +149,36 @@ export async function generateDraft(
   hook: string,
   styleReferences?: UnifiedStyleExample[]
 ): Promise<{ title: string; body: string; hook: string; outline: string }> {
-  await simulateDelay(1200);
+  const styleBlock = buildStyleReferenceBlock(styleReferences);
 
-  const styleExamples = styleReferences && styleReferences.length > 0
-    ? styleReferences.slice(0, 5).map((ref) => {
-        const sourceLabel = ref.source === "link" ? "Link" : "File";
-        return `\n\n--- STYLE EXAMPLE (Source: ${sourceLabel}) ---\nTitle: ${ref.title}\nBody: ${ref.body.slice(0, 500)}...`;
-      }).join("")
-    : "";
+  const system =
+    `You are an expert content writer. Write original, engaging ${
+      platform === "threads" ? "Threads post" : "website article"
+    } content for the requested topic.` +
+    styleInstruction(styleBlock) +
+    "\n\nRespond with EXACTLY this structure (no other text):\n" +
+    "TITLE: <title>\n" +
+    "HOOK: <opening hook line>\n" +
+    "OUTLINE: <brief outline of the structure>\n" +
+    "BODY:\n<the full content>";
 
-  const stylePrompt = styleExamples
-    ? `\n\nWrite in the same tone, sentence rhythm, and structure as these examples from the creator's published work:${styleExamples}\n\n--- END STYLE EXAMPLES ---\n\n`
-    : "";
+  const formatInstruction =
+    platform === "threads"
+      ? "Format the body as 4 numbered points using emoji markers (1️⃣, 2️⃣, 3️⃣, 4️⃣), each followed by a short punchy explanation, ending with a conclusion or action item. Keep it scannable and conversational."
+      : "Format the body as a markdown article: a ## Background section, three ### subsections, and a ## Conclusion with a call to action. Write in an authoritative, editorial voice.";
 
-  if (platform === "threads") {
-    return {
-      title: idea.slice(0, 60),
-      hook,
-      body: `${hook}\n\n1️⃣ The first key point\n\nDetailed explanation of the first point with real-world examples.\n\n2️⃣ The second point you can't ignore\n\nAnalysis of why this matters to most people.\n\n3️⃣ The third point - insider tip\n\nShare knowledge that few people know about.\n\n4️⃣ Conclusion + Action item\n\nSummary and specific action suggestions.${stylePrompt}`,
-      outline: "4 numbered points with hook and conclusion",
-    };
-  }
+  const user =
+    `Topic: ${idea}\nHook: ${hook}\nPlatform: ${platform}\nPillar: ${pillar}\n\n` +
+    `Formatting instructions:\n${formatInstruction}\n\n` +
+    `Write the content now.`;
 
-  return {
-    title: idea.slice(0, 80),
-    hook,
-    body: `# ${idea}\n\n${hook}\n\n## Background\n\nIntroduce the issue and why it matters.\n\n## Detailed Analysis\n\n### Point 1\n\nIn-depth content...\n\n### Point 2\n\nIn-depth content...\n\n### Point 3\n\nIn-depth content...\n\n## Conclusion\n\nSummary and call to action.${stylePrompt}`,
-    outline: "Introduction, 3 main sections, conclusion",
-  };
+  const raw = await complete(system, user);
+
+  const title = extractField(raw, "TITLE") || idea.slice(0, 80);
+  const generatedHook = extractField(raw, "HOOK") || hook;
+  const outline = extractField(raw, "OUTLINE") || "";
+
+  return { title, body: extractBody(raw), hook: generatedHook, outline };
 }
 
 export async function repurposeDraft(
@@ -114,32 +187,35 @@ export async function repurposeDraft(
   toPlatform: Platform,
   styleReferences?: UnifiedStyleExample[]
 ): Promise<{ title: string; body: string; hook: string }> {
-  await simulateDelay(900);
+  const styleBlock = buildStyleReferenceBlock(styleReferences);
 
-  const styleExamples = styleReferences && styleReferences.length > 0
-    ? styleReferences.slice(0, 5).map((ref) => {
-        const sourceLabel = ref.source === "link" ? "Link" : "File";
-        return `\n\n--- STYLE EXAMPLE (Source: ${sourceLabel}) ---\nTitle: ${ref.title}\nBody: ${ref.body.slice(0, 500)}...`;
-      }).join("")
-    : "";
+  const system =
+    `You are an expert content repurposer. Rewrite the source content into a ${
+      toPlatform === "threads" ? "Threads post" : "website article"
+    }, preserving the core meaning, value, and insights while adapting the format.` +
+    styleInstruction(styleBlock) +
+    "\n\nRespond with EXACTLY this structure (no other text):\n" +
+    "TITLE: <title>\n" +
+    "HOOK: <opening hook line>\n" +
+    "BODY:\n<the full rewritten content>";
 
-  const stylePrompt = styleExamples
-    ? `\n\nWrite in the same tone, sentence rhythm, and structure as these examples from the creator's published work:${styleExamples}\n\n--- END STYLE EXAMPLES ---\n\n`
-    : "";
+  const formatInstruction =
+    toPlatform === "threads"
+      ? "Format the body as 3-4 numbered points using emoji markers (1️⃣, 2️⃣, 3️⃣), each followed by a short punchy explanation, ending with an action item."
+      : "Format the body as a markdown article with ## sections and ### subsections, expanding each point with more depth and context.";
 
-  if (toPlatform === "threads") {
-    return {
-      title: "Repurposed from website",
-      hook: "Key takeaways from an important article you need to read:",
-      body: "1️⃣ Key point from the article\n\nSummary of the main content.\n\n2️⃣ The most important takeaway\n\nHighlight the insight.\n\n3️⃣ Action item\n\nYou can start implementing this today." + stylePrompt,
-    };
-  }
+  const user =
+    `Source content (originally for ${fromPlatform}):\n${body}\n\n` +
+    `Target platform: ${toPlatform}\n\n` +
+    `Formatting instructions:\n${formatInstruction}\n\n` +
+    `Repurpose the content now.`;
 
-  return {
-    title: "Expanded article from thread",
-    hook: "This article expands on a viral thread I wrote.",
-    body: `# Full Article\n\n${body}\n\n## Expansion\n\nDeeper analysis of each point.${stylePrompt}`,
-  };
+  const raw = await complete(system, user);
+
+  const title = extractField(raw, "TITLE") || "Repurposed content";
+  const hook = extractField(raw, "HOOK") || body.slice(0, 120);
+
+  return { title, body: extractBody(raw), hook };
 }
 
 export async function generateAIReviewNotes(
@@ -147,17 +223,29 @@ export async function generateAIReviewNotes(
   body: string,
   platform: Platform
 ): Promise<string[]> {
-  await simulateDelay(500);
-
   const notes: string[] = [];
   if (body.length < 200) notes.push("Content is too short, consider adding more detail");
-  if (!body.includes("1️⃣") && platform === "threads")
-    notes.push("Consider using numbered list format for Threads");
   if (title.length > 80) notes.push("Title is too long, consider shortening for web");
-  if (Math.random() > 0.5) notes.push("Hook may overlap with existing content");
-  if (Math.random() > 0.6) notes.push("Tone may need adjustment to match brand voice");
 
-  return notes.length > 0 ? notes : ["No significant issues detected"];
+  const system =
+    "You are an expert content editor. Review the draft and flag genuine, specific issues " +
+    "you can support from the text. Examples: the hook resembles a common/overused pattern; " +
+    "the tone drifts from a consistent voice; a claim lacks a concrete example or evidence; " +
+    "weak structure; formatting problems for the target platform. " +
+    "Do not invent issues. Return one issue per line, each starting with '- '. " +
+    "If the draft has no meaningful issues, return exactly:\n- No significant issues detected";
+
+  const user = `Title: ${title}\nPlatform: ${platform}\n\nBody:\n${body}`;
+
+  const raw = await complete(system, user);
+
+  const aiNotes = raw
+    .split("\n")
+    .map((line) => line.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, "").trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => !/^no significant issues detected$/i.test(line));
+
+  return notes.length + aiNotes.length > 0 ? [...notes, ...aiNotes] : ["No significant issues detected"];
 }
 
 export interface TrendingAngle {

@@ -69,6 +69,7 @@ export default function CombinedWritingPage() {
   const [generating, setGenerating] = useState(false);
   const [repurposing, setRepurposing] = useState<string | null>(null);
   const [showVersions, setShowVersions] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // ─── Cross-section: draft-from-idea flow ───
   const [selectedIdeaForDraft, setSelectedIdeaForDraft] = useState<Idea | null>(null);
@@ -289,6 +290,7 @@ export default function CombinedWritingPage() {
   const handleGenerate = async () => {
     if (!selectedDraft) return;
     setGenerating(true);
+    setAiError(null);
     const res = await fetch("/api/drafts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -301,6 +303,11 @@ export default function CombinedWritingPage() {
       }),
     });
     const data = await res.json();
+    if (!res.ok) {
+      setAiError(data.error || "AI generation failed");
+      setGenerating(false);
+      return;
+    }
     setEditingBody(data.body);
     setEditingHook(data.hook);
     setGenerating(false);
@@ -308,6 +315,7 @@ export default function CombinedWritingPage() {
 
   const handleRepurpose = async (draft: Draft, toPlatform: Platform) => {
     setRepurposing(draft.id);
+    setAiError(null);
     const res = await fetch("/api/drafts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -319,6 +327,11 @@ export default function CombinedWritingPage() {
       }),
     });
     const data = await res.json();
+    if (!res.ok) {
+      setAiError(data.error || "AI repurposing failed");
+      setRepurposing(null);
+      return;
+    }
     const newRes = await fetch("/api/drafts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -332,6 +345,12 @@ export default function CombinedWritingPage() {
         outline: data.body.slice(0, 100),
       }),
     });
+    if (!newRes.ok) {
+      const err = await newRes.json();
+      setAiError(err.error || "Failed to save repurposed draft");
+      setRepurposing(null);
+      return;
+    }
     const newDraft = await newRes.json();
     setDrafts((prev) => [newDraft, ...prev]);
     setRepurposing(null);
@@ -749,6 +768,12 @@ export default function CombinedWritingPage() {
                     <label className="text-sm text-[var(--muted)] mb-1 block">Content</label>
                     <textarea value={editingBody} onChange={(e) => setEditingBody(e.target.value)} className="min-h-[300px] font-mono text-sm" />
                   </div>
+
+                  {aiError && (
+                    <div className="mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-400">
+                      ⚠️ {aiError}
+                    </div>
+                  )}
 
                   <div className="flex gap-2 flex-wrap">
                     <button onClick={handleGenerate} disabled={generating} className="gradient-btn">

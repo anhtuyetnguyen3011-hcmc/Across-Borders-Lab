@@ -10,15 +10,29 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   if (body.action === "generate") {
-    const styleRefs = await getUnifiedStyleReferences();
-    const result = await generateDraft(body.idea, body.platform, body.pillar, body.hook, styleRefs);
-    return NextResponse.json(result);
+    try {
+      const styleRefs = await getUnifiedStyleReferences();
+      const result = await generateDraft(body.idea, body.platform, body.pillar, body.hook, styleRefs);
+      return NextResponse.json(result);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "AI generation failed" },
+        { status: 500 }
+      );
+    }
   }
 
   if (body.action === "repurpose") {
-    const styleRefs = await getUnifiedStyleReferences();
-    const result = await repurposeDraft(body.body, body.fromPlatform, body.toPlatform, styleRefs);
-    return NextResponse.json(result);
+    try {
+      const styleRefs = await getUnifiedStyleReferences();
+      const result = await repurposeDraft(body.body, body.fromPlatform, body.toPlatform, styleRefs);
+      return NextResponse.json(result);
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "AI repurposing failed" },
+        { status: 500 }
+      );
+    }
   }
 
   if (body.action === "hooks") {

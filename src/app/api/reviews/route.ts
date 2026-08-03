@@ -11,8 +11,15 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   if (body.action === "aiReview") {
-    const notes = await generateAIReviewNotes(body.title, body.body, body.platform);
-    return NextResponse.json({ notes });
+    try {
+      const notes = await generateAIReviewNotes(body.title, body.body, body.platform);
+      return NextResponse.json({ notes });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "AI review failed" },
+        { status: 500 }
+      );
+    }
   }
 
   const existing = await getReviewByDraftId(body.draftId);
