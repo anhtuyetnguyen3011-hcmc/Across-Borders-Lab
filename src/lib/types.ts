@@ -78,7 +78,7 @@ export interface ScheduledPost {
 
 export interface PerformanceMetric {
   id: string;
-  scheduledPostId: string;
+  scheduledPostId: string | null;
   draftId: string;
   platform: Platform;
   pillar: Pillar;

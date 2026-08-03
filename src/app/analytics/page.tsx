@@ -25,6 +25,7 @@ interface AnalyticsSummary {
 interface UploadResult {
   success: boolean;
   uploaded: number;
+  matched: number;
   unmatched: { row: { post_reference: string }; reason: string }[];
   duplicates: number;
   errors: string[];
@@ -38,7 +39,17 @@ export default function AnalyticsPage() {
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
 
   useEffect(() => {
-    fetch("/api/analytics").then((r) => r.json()).then(setSummary);
+    fetch("/api/analytics")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to load analytics"))))
+      .then(setSummary)
+      .catch(() => setSummary({
+        totalViews7d: 0,
+        totalViews30d: 0,
+        avgEngagementRate: 0,
+        bestPillar: { pillar: "education", engagementRate: 0 },
+        topPosts: [],
+        pillarPerformance: [],
+      }));
   }, []);
 
   const handleMirrorTopPost = async () => {
@@ -77,25 +88,44 @@ export default function AnalyticsPage() {
     setUploading(true);
     setUploadResult(null);
 
-    const formData = new FormData();
-    formData.append("file", file);
+    const emptyResult: UploadResult = {
+      success: false,
+      uploaded: 0,
+      matched: 0,
+      unmatched: [],
+      duplicates: 0,
+      errors: [],
+    };
 
-    const res = await fetch("/api/analytics/upload", {
-      method: "POST",
-      body: formData,
-    });
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
 
-    const result: UploadResult = await res.json();
-    setUploadResult(result);
-    setUploading(false);
+      const res = await fetch("/api/analytics/upload", {
+        method: "POST",
+        body: formData,
+      });
 
-    if (result.success) {
-      const summaryRes = await fetch("/api/analytics");
-      const newSummary = await summaryRes.json();
-      setSummary(newSummary);
+      const result: UploadResult = await res.json().catch(() => null) ?? emptyResult;
+      setUploadResult(result);
+
+      if (result.success) {
+        const summaryRes = await fetch("/api/analytics");
+        if (summaryRes.ok) {
+          const newSummary = await summaryRes.json();
+          setSummary(newSummary);
+        }
+      }
+    } catch (error) {
+      console.error("Upload failed:", error);
+      setUploadResult({
+        ...emptyResult,
+        errors: [error instanceof Error ? error.message : "Upload failed"],
+      });
+    } finally {
+      setUploading(false);
+      e.target.value = "";
     }
-
-    e.target.value = "";
   };
 
   if (!summary) {
@@ -106,7 +136,7 @@ export default function AnalyticsPage() {
     );
   }
 
-  const maxViews = Math.max(...(summary.topPosts.map((p) => p.views) || [1]));
+  const maxViews = Math.max(...((summary.topPosts ?? []).map((p) => p.views) || [1]));
 
   return (
     <div className="space-y-6">
@@ -161,10 +191,11 @@ export default function AnalyticsPage() {
           </h3>
           <div className="space-y-1 text-sm">
             <p>Uploaded: {uploadResult.uploaded} records</p>
+            <p>Matched: {uploadResult.matched} posts</p>
             {uploadResult.duplicates > 0 && (
               <p className="text-yellow-400">Overwritten: {uploadResult.duplicates} duplicate records</p>
             )}
-            {uploadResult.unmatched.length > 0 && (
+            {(uploadResult.unmatched?.length ?? 0) > 0 && (
               <div className="mt-2">
                 <p className="text-orange-400 font-medium">Unmatched Posts ({uploadResult.unmatched.length}):</p>
                 <ul className="list-disc list-inside text-xs text-[var(--muted)] max-h-32 overflow-y-auto">
@@ -174,7 +205,7 @@ export default function AnalyticsPage() {
                 </ul>
               </div>
             )}
-            {uploadResult.errors.length > 0 && (
+            {(uploadResult.errors?.length ?? 0) > 0 && (
               <div className="mt-2">
                 <p className="text-red-400 font-medium">Errors:</p>
                 <ul className="list-disc list-inside text-xs text-[var(--muted)]">

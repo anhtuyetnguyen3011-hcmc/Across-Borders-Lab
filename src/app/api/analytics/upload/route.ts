@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import prisma from "@/lib/db";
+import { upsertMetricByDraftId } from "@/lib/data";
 import { Platform, Pillar } from "@/lib/types";
 
 interface ExcelRow {
@@ -15,6 +16,7 @@ interface ExcelRow {
 interface UploadResult {
   success: boolean;
   uploaded: number;
+  matched: number;
   unmatched: { row: ExcelRow; reason: string }[];
   duplicates: number;
   errors: string[];
@@ -63,12 +65,23 @@ function calculateEngagementRate(views: number, likes: number, comments: number)
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const result: UploadResult = {
+    success: true,
+    uploaded: 0,
+    matched: 0,
+    unmatched: [],
+    duplicates: 0,
+    errors: [],
+  };
+
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
 
     if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+      result.success = false;
+      result.errors.push("No file provided");
+      return NextResponse.json(result, { status: 400 });
     }
 
     const buffer = await file.arrayBuffer();
@@ -76,14 +89,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     const rows: ExcelRow[] = XLSX.utils.sheet_to_json(sheet);
-
-    const result: UploadResult = {
-      success: true,
-      uploaded: 0,
-      unmatched: [],
-      duplicates: 0,
-      errors: [],
-    };
 
     for (const row of rows) {
       if (!row.post_reference || !row.platform || !row.views) {
@@ -102,51 +107,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         result.unmatched.push({ row, reason: `Post not found: ${row.post_reference}` });
         continue;
       }
+      result.matched++;
 
       const captureDate = row.date ? new Date(row.date) : new Date();
-      const dateStr = captureDate.toISOString().split("T")[0];
+      if (isNaN(captureDate.getTime())) {
+        result.unmatched.push({ row, reason: `Invalid date: ${row.date}` });
+        continue;
+      }
 
-      const existingMetric = await prisma.performanceMetric.findFirst({
-        where: {
-          draftId: match.draftId,
-          capturedAt: {
-            gte: new Date(dateStr + "T00:00:00.000Z"),
-            lt: new Date(dateStr + "T23:59:59.999Z"),
-          },
-        },
+      const scheduledPost = await prisma.scheduledPost.findFirst({
+        where: { draftId: match.draftId },
       });
 
-      if (existingMetric) {
-        await prisma.performanceMetric.update({
-          where: { id: existingMetric.id },
-          data: {
-            views: row.views,
-            likes: row.likes || 0,
-            comments: row.comments || 0,
-            engagementRate: calculateEngagementRate(row.views, row.likes || 0, row.comments || 0),
-            capturedAt: captureDate,
-          },
-        });
-        result.duplicates++;
-      } else {
-        const scheduledPost = await prisma.scheduledPost.findFirst({
-          where: { draftId: match.draftId },
-        });
+      const { created } = await upsertMetricByDraftId(match.draftId, {
+        scheduledPostId: scheduledPost?.id ?? null,
+        platform: platformLower as Platform,
+        pillar: match.pillar,
+        views: row.views,
+        likes: row.likes || 0,
+        comments: row.comments || 0,
+        engagementRate: calculateEngagementRate(row.views, row.likes || 0, row.comments || 0),
+        capturedAt: captureDate.toISOString(),
+      });
 
-        await prisma.performanceMetric.create({
-          data: {
-            scheduledPostId: scheduledPost?.id || `sched-${match.draftId}`,
-            draftId: match.draftId,
-            platform: platformLower,
-            pillar: match.pillar,
-            views: row.views,
-            likes: row.likes || 0,
-            comments: row.comments || 0,
-            engagementRate: calculateEngagementRate(row.views, row.likes || 0, row.comments || 0),
-            capturedAt: captureDate,
-          },
-        });
-      }
+      if (!created) result.duplicates++;
 
       result.uploaded++;
     }
@@ -154,13 +138,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(result);
   } catch (error) {
     console.error("Excel upload error:", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    result.success = false;
+    result.errors.push(error instanceof Error ? error.message : "Unknown error");
+    return NextResponse.json(result, { status: 500 });
   }
 }
 

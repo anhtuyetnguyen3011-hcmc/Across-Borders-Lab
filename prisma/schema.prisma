@@ -78,8 +78,8 @@ model ScheduledPost {
 
 model PerformanceMetric {
   id               String        @id @default(cuid())
-  scheduledPostId  String        @unique
-  scheduledPost    ScheduledPost @relation(fields: [scheduledPostId], references: [id])
+  scheduledPostId  String?       @unique
+  scheduledPost    ScheduledPost? @relation(fields: [scheduledPostId], references: [id])
   draftId          String         @unique
   draft            Draft          @relation(fields: [draftId], references: [id])
   platform         String        // threads | website

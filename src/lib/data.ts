@@ -303,16 +303,20 @@ export function updateMetric(id: string, data: Partial<PerformanceMetric>): Prom
   return prisma.performanceMetric.update({ where: { id }, data }).then(toMetric);
 }
 
-export function findMetricsByDraftIdAndDate(draftId: string, dateStr: string): Promise<PerformanceMetric | undefined> {
-  return prisma.performanceMetric.findFirst({
-    where: {
-      draftId,
-      capturedAt: {
-        gte: new Date(dateStr + "T00:00:00.000Z"),
-        lt: new Date(dateStr + "T23:59:59.999Z"),
-      },
-    },
-  }).then((r) => r ? toMetric(r) : undefined);
+export function upsertMetricByDraftId(
+  draftId: string,
+  data: Omit<PerformanceMetric, "id" | "draftId">,
+): Promise<{ metric: PerformanceMetric; created: boolean }> {
+  return prisma.performanceMetric.findUnique({
+    where: { draftId },
+    select: { id: true },
+  }).then((existing) =>
+    prisma.performanceMetric.upsert({
+      where: { draftId },
+      update: data,
+      create: { ...data, draftId },
+    }).then((metric) => ({ metric: toMetric(metric), created: !existing }))
+  );
 }
 
 // Trending Topics (mock — not stored in DB)
