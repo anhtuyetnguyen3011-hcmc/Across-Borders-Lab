@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getReview, updateReview, getDraft, updateDraft, addScheduledPost, getScheduledPosts } from "@/lib/data";
+import { getReview, updateReview, updateDraft, getScheduledPosts } from "@/lib/data";
 import { sendApprovalConfirmation, isTelegramConfigured } from "@/lib/telegram";
 
 interface TelegramCallbackQuery {
@@ -34,16 +34,6 @@ interface TelegramUpdate {
       text: string;
     };
   };
-}
-
-function getNextAvailableSlot(): Date {
-  const now = new Date();
-  const hour = now.getHours();
-  
-  if (hour < 9) return new Date(now.setHours(8, 0, 0, 0));
-  if (hour < 12) return new Date(now.setHours(12, 0, 0, 0));
-  if (hour < 18) return new Date(now.setHours(18, 0, 0, 0));
-  return new Date(now.setHours(20, 0, 0, 0));
 }
 
 export async function POST(req: NextRequest) {
@@ -84,16 +74,7 @@ export async function POST(req: NextRequest) {
       if (review) {
         await logStep("updateReview(approved)", () => updateReview(reviewId, { status: "approved" }));
         await logStep("updateDraft(approved)", () => updateDraft(review.draftId, { status: "approved" }));
-        
-        const scheduledTime = getNextAvailableSlot();
-        const draft = await logStep("getDraft(approve)", () => getDraft(review.draftId));
-        await logStep("addScheduledPost(approve)", () => addScheduledPost({
-          draftId: review.draftId,
-          platform: draft?.platform || "threads",
-          scheduledTime: scheduledTime.toISOString(),
-          publishStatus: "queued",
-        }));
-        
+
         await logStep("sendApprovalConfirmation(approve)", () => sendApprovalConfirmation(reviewId, true));
       } else {
         console.log("[WEBHOOK-DEBUG] approve flow SKIPPED: review not found for reviewId =", reviewId);
