@@ -36,8 +36,15 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.action === "hooks") {
-    const hooks = await generateHooks(body.title, body.pillar, body.platform);
-    return NextResponse.json({ hooks });
+    try {
+      const hooks = await generateHooks(body.title, body.pillar, body.platform, body.draftBody);
+      return NextResponse.json({ hooks });
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "AI hook generation failed" },
+        { status: 500 }
+      );
+    }
   }
 
   const draft = await addDraft({

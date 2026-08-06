@@ -2,6 +2,21 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Platform, Pillar } from "./types";
 import { UnifiedStyleExample } from "./data";
 
+const GENERIC_PATTERNS = [
+  /beginner'?s guide to/i,
+  /matters more than you think/i,
+  /\d+%\s*of people (miss|don'?t|think)/i,
+  /everything you need to know/i,
+  /ultimate guide to/i,
+];
+
+function isGeneric(text: string): boolean {
+  return GENERIC_PATTERNS.some((p) => p.test(text));
+}
+
+const TREND_SIGNAL_TTL_MS = 60 * 60 * 1000;
+const trendSignalCache = new Map<string, { expiresAt: number; signals: string[] }>();
+
 export interface AIConfig {
   model: string;
   provider: string;
@@ -94,6 +109,17 @@ function extractBody(raw: string): string {
   return raw.slice(bodyIndex).replace(/^BODY:\s*/m, "").trim();
 }
 
+function parseJSONArray<T>(raw: string): T[] {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = fenced ? fenced[1] : raw;
+  const start = candidate.indexOf("[");
+  const end = candidate.lastIndexOf("]");
+  const slice = start !== -1 && end > start ? candidate.slice(start, end + 1) : candidate;
+  const parsed = JSON.parse(slice);
+  if (!Array.isArray(parsed)) throw new Error("LLM response was not a JSON array");
+  return parsed as T[];
+}
+
 export async function expandIdea(
   ideaText: string,
   pillar: Pillar,
@@ -127,19 +153,65 @@ export async function expandIdea(
   return (variants[pillar] || variants.education).slice(0, 4);
 }
 
+const HOOK_SYSTEM_PROMPT = `You write opening hooks for social/blog content.
+
+RULES:
+1. Each hook must reference a specific detail, claim, number, or tension that actually appears in the draft content provided.
+2. Do NOT default to "Here's why X% of people miss out on..." or "Most people think X, but..." unless a real statistic or contradiction exists in the draft.
+3. If the draft has no strong specific detail yet, base each hook on the single most concrete point available — even a small one — rather than inventing a generic template.
+4. Match tone/length to the platform (Threads = punchy, 1–2 lines; Blog = can be longer).
+
+Return ONLY a valid JSON array of 3 distinct hook strings, each grounded in the draft content provided. No numbering, no bullet markers, no extra text.`;
+
+function parseHooks(raw: string): string[] {
+  try {
+    const parsed = parseJSONArray<string>(raw);
+    if (parsed.length > 0) return parsed.map((h) => h.trim()).filter(Boolean);
+  } catch {
+    // fall through to line-based parsing for non-JSON model output
+  }
+  return raw
+    .split("\n")
+    .map((line) => line.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, "").trim())
+    .filter((line) => line.length > 0);
+}
+
 export async function generateHooks(
   title: string,
   pillar: Pillar,
-  platform: Platform
+  platform: Platform,
+  draftBody?: string
 ): Promise<string[]> {
-  const length = platform === "threads" ? "short, punchy" : "longer, with context";
+  let grounding = draftBody || "";
+  if (grounding.trim().length < 20) {
+    grounding = await getQuickOutline(title);
+  }
 
-  await simulateDelay(600);
-  return [
-    `After 2 years of experience, I discovered something about "${title.slice(0, 40)}..."`,
-    `Here's why 90% of people miss out on "${title.slice(0, 40)}..."`,
-    `I tried it and the results were completely unexpected: "${title.slice(0, 40)}..."`,
-  ];
+  const userPrompt = `Title: "${title}"
+Platform: ${platform}
+Pillar/audience: ${pillar}
+Draft content:
+${grounding}
+
+Write 3 hooks, each based on a specific detail from the draft above.`;
+
+  let raw = await complete(HOOK_SYSTEM_PROMPT, userPrompt);
+  let hooks = parseHooks(raw);
+
+  const generic = hooks.filter((h) => isGeneric(h));
+  if (generic.length > 0) {
+    console.warn(
+      `[ai] isGeneric() fired on ${generic.length} of ${hooks.length} hooks for "${title}"`
+    );
+    raw = await complete(
+      HOOK_SYSTEM_PROMPT,
+      `${userPrompt}\n\nYour previous output was too generic. Be more specific and reference the actual draft content provided.`
+    );
+    hooks = parseHooks(raw);
+  }
+
+  const clean = hooks.filter((h) => !isGeneric(h));
+  return clean.length > 0 ? clean : [grounding.trim().slice(0, 120)];
 }
 
 export async function generateDraft(
@@ -252,54 +324,103 @@ export interface TrendingAngle {
   title: string;
   reason: string;
   pillar: string;
+  based_on_signal?: string;
 }
 
-export async function getTrendingAngles(topic: string): Promise<TrendingAngle[]> {
-  await simulateDelay(1000);
+const IDEAS_SYSTEM_PROMPT = `You are a content strategist generating specific, non-generic content ideas.
 
-  const topicLower = topic.toLowerCase();
-  const angles: TrendingAngle[] = [];
+RULES:
+1. Every idea must reference a specific angle, sub-topic, tension, or fact from the trend data provided — not just restate the keyword.
+2. NEVER use these generic templates: "The Beginner's Guide to X", "Why X Matters More Than You Think", "X: Everything You Need to Know", "The Ultimate Guide to X".
+3. Each title must be topic-specific enough that swapping in a different topic keyword would make the title nonsensical.
+4. Ground each idea in one of the provided trend signals.
 
-  if (topicLower.includes("ai") || topicLower.includes("artificial") || topicLower.includes("machine learning")) {
-    angles.push(
-      { title: "How AI is Reshaping Content Creation in 2026", reason: "Rapid adoption of AI writing tools is changing creator workflows", pillar: "Education" },
-      { title: "The Human Edge: Why Authenticity Matters More Than Ever in the AI Era", reason: "Audiences are craving genuine human perspectives amid AI-generated noise", pillar: "Education" },
-      { title: "My 3-Month Experiment Using Only AI Tools for Content", reason: "Hands-on experience reports are highly engaging and actionable", pillar: "Career" },
-      { title: "AI Tools That Actually Saved Me 10 Hours a Week", reason: "Productivity hacks with concrete results drive strong engagement", pillar: "Education" },
-      { title: "Balancing AI Efficiency with Creative Intuition", reason: "The debate around AI vs human creativity is trending across platforms", pillar: "Education" }
+Return ONLY a valid JSON array in this exact format:
+[
+  {
+    "category": "Education | Career | Lifestyle",
+    "title": "specific, concrete title",
+    "reason": "one sentence on why this angle will perform, referencing the specific signal",
+    "based_on_signal": "which trend signal this came from"
+  }
+]`;
+
+function mapCategoryToPillar(category: string): string {
+  const c = (category || "").toLowerCase();
+  if (c.includes("career")) return "career";
+  if (c.includes("lifestyle")) return "lifestyle";
+  return "education";
+}
+
+interface IdeaSignalGrounding {
+  category?: string;
+  title?: string;
+  reason?: string;
+  based_on_signal?: string;
+}
+
+function parseIdeas(raw: string): TrendingAngle[] {
+  return parseJSONArray<IdeaSignalGrounding>(raw)
+    .filter((i) => i && typeof i.title === "string" && i.title.trim().length > 0)
+    .map((i) => ({
+      title: i.title!.trim(),
+      reason: (i.reason || "").trim(),
+      pillar: mapCategoryToPillar(i.category || ""),
+      based_on_signal: (i.based_on_signal || "").trim(),
+    }));
+}
+
+async function getSubAngles(topic: string): Promise<string[]> {
+  const key = topic.trim().toLowerCase();
+  const cached = trendSignalCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.signals;
+
+  const system =
+    "You are a research analyst. Your answers must be concrete and specific, never generic.";
+  const prompt = `List 6 specific, concrete sub-topics, controversies, or recent shifts related to "${topic}" that a real expert would know about. Be specific — include numbers, named trends, or specific audience segments. No generic statements.\n\nReturn ONLY a valid JSON array of strings.`;
+
+  const raw = await complete(system, prompt);
+  const signals = parseJSONArray<string>(raw)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  trendSignalCache.set(key, { expiresAt: Date.now() + TREND_SIGNAL_TTL_MS, signals });
+  return signals;
+}
+
+export async function getAISuggestions(topic: string): Promise<TrendingAngle[]> {
+  const signals = await getSubAngles(topic);
+
+  const userPrompt = `Topic: "${topic}"
+
+Real trend signals (recent searches, related questions, discussions):
+${signals.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+Generate 5 content ideas grounded in the specific signals above.`;
+
+  let raw = await complete(IDEAS_SYSTEM_PROMPT, userPrompt);
+  let ideas = parseIdeas(raw);
+
+  const genericTitles = ideas.filter((i) => isGeneric(i.title));
+  if (genericTitles.length > 0) {
+    console.warn(
+      `[ai] isGeneric() fired on ${genericTitles.length} of ${ideas.length} suggestions for "${topic}"`
     );
-  } else if (topicLower.includes("remote") || topicLower.includes("work from home") || topicLower.includes("digital nomad")) {
-    angles.push(
-      { title: "Remote Work 2.0: What Actually Works After 3 Years", reason: "Long-term remote workers are sharing refined, battle-tested setups", pillar: "Career" },
-      { title: "The Hidden Costs of Remote Work Nobody Talks About", reason: "Contrarian takes on popular trends consistently outperform", pillar: "Education" },
-      { title: "Building a Productive Home Office for Under $500", reason: "Budget-friendly practical guides have broad appeal", pillar: "Education" },
-      { title: "How I Manage Work-Life Boundaries as a Full-Time Remote Worker", reason: "Work-life balance content resonates strongly with remote audiences", pillar: "Lifestyle" }
+    raw = await complete(
+      IDEAS_SYSTEM_PROMPT,
+      `${userPrompt}\n\nYour previous output was too generic. Be more specific and reference the actual data provided.`
     );
-  } else if (topicLower.includes("freelance") || topicLower.includes("freelancer") || topicLower.includes("independent")) {
-    angles.push(
-      { title: "Freelancing After Corporate: 5 Lessons I Learned the Hard Way", reason: "Career transition stories get high engagement from professionals", pillar: "Career" },
-      { title: "Why Most Freelancers Fail in Their First Year", reason: "Cautionary content with actionable advice drives saves and shares", pillar: "Education" },
-      { title: "Setting Your Freelance Rates: A No-Nonsense Guide", reason: "Pricing strategy is a perennial pain point for freelancers", pillar: "Education" },
-      { title: "The Burnout Cycle: Why Freelancers Need to Rethink Hustle", reason: "Mental health in independent work is an emerging conversation", pillar: "Career" }
-    );
-  } else if (topicLower.includes("content") || topicLower.includes("creator") || topicLower.includes("social media")) {
-    angles.push(
-      { title: "Content Strategy That Actually Works in 2026", reason: "Algorithm updates have shifted what works, creating demand for new strategies", pillar: "Education" },
-      { title: "From 0 to 10K Followers: What I Did Differently", reason: "Growth case studies with specific tactics perform consistently well", pillar: "Career" },
-      { title: "Quality vs Quantity: The Data Behind What Actually Works", reason: "Data-driven takes on content debates attract engagement from serious creators", pillar: "Education" },
-      { title: "Repurposing Content: Turn 1 Idea Into 10 Pieces", reason: "Efficiency-focused content creation guides are in high demand", pillar: "Education" }
-    );
-  } else {
-    angles.push(
-      { title: `The Beginner's Guide to ${topic}`, reason: "Foundational guides attract steady search and social traffic", pillar: "Education" },
-      { title: `Why ${topic} Matters More Than You Think`, reason: "Awareness-building content with a fresh angle drives discovery", pillar: "Education" },
-      { title: `My Personal Journey With ${topic}`, reason: "First-person experience stories build trust and connection", pillar: "Career" },
-      { title: `5 Common Mistakes in ${topic} and How to Avoid Them`, reason: "Mistake-based content consistently outperforms generic advice", pillar: "Education" },
-      { title: `How ${topic} Fits Into a Balanced Lifestyle`, reason: "Connecting topics to lifestyle resonates with broader audiences", pillar: "Lifestyle" }
-    );
+    ideas = parseIdeas(raw);
   }
 
-  return angles;
+  return ideas.filter((i) => !isGeneric(i.title));
+}
+
+async function getQuickOutline(title: string): Promise<string> {
+  const system =
+    "You are a content strategist. Your output must be concrete and specific, never generic.";
+  const prompt = `Write 3 concrete bullet points (with specific facts, numbers, or claims — not generic statements) that could go into a piece of content titled "${title}". These will be used to ground an opening hook.`;
+  return complete(system, prompt);
 }
 
 function simulateDelay(ms: number): Promise<void> {

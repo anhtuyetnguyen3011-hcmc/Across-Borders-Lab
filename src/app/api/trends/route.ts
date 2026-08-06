@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTrendingAngles } from "@/lib/ai";
+import { getAISuggestions } from "@/lib/ai";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -9,6 +9,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Topic must be at least 3 characters" }, { status: 400 });
   }
 
-  const angles = await getTrendingAngles(topic.trim());
-  return NextResponse.json({ angles });
+  try {
+    const angles = await getAISuggestions(topic.trim());
+    return NextResponse.json({ angles });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to generate suggestions" },
+      { status: 500 }
+    );
+  }
 }

@@ -313,6 +313,30 @@ export default function CombinedWritingPage() {
     setGenerating(false);
   };
 
+  const handleGenerateHookFromDraft = async () => {
+    if (!selectedDraft) return;
+    setGeneratingHooks(true);
+    setAiError(null);
+    const res = await fetch("/api/drafts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "hooks",
+        title: selectedDraft.title,
+        pillar: selectedDraft.pillar,
+        platform: selectedDraft.platform,
+        draftBody: editingBody,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setAiError(data.error || "AI hook generation failed");
+    } else if (data.hooks?.length) {
+      setEditingHook(data.hooks[0]);
+    }
+    setGeneratingHooks(false);
+  };
+
   const handleRepurpose = async (draft: Draft, toPlatform: Platform) => {
     setRepurposing(draft.id);
     setAiError(null);
@@ -778,6 +802,13 @@ export default function CombinedWritingPage() {
                   <div className="flex gap-2 flex-wrap">
                     <button onClick={handleGenerate} disabled={generating} className="gradient-btn">
                       {generating ? "Generating..." : "✨ Generate with AI"}
+                    </button>
+                    <button
+                      onClick={handleGenerateHookFromDraft}
+                      disabled={generatingHooks}
+                      className="px-4 py-2 rounded-xl border border-[var(--accent-start)] text-[var(--accent-end)] font-medium hover:bg-[var(--accent-start)]/10 transition disabled:opacity-50"
+                    >
+                      {generatingHooks ? "Writing hook..." : "✨ AI Hook"}
                     </button>
                     <button onClick={handleSave} className="px-4 py-2 rounded-xl bg-green-600 text-white font-medium hover:bg-green-700 transition">Save Changes</button>
                     {selectedDraft.status === "draft" && (
