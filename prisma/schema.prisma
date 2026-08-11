@@ -38,6 +38,9 @@ model Draft {
   aiModel           String         @default("gpt-4o")
   status            String         @default("draft") // draft | needs_review | needs_edit | approved
   originalityRisk   Int            @default(0)
+  styleScore        Float?
+  styleDeltas       Json?
+  selectedHookArchetype String?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   review            ReviewItem?
@@ -52,6 +55,15 @@ model StyleSample {
   extractedText String
   title         String?
   createdAt     DateTime @default(now())
+}
+
+model StyleProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique @default("default")
+  traits          Json
+  sourceSampleIds Json
+  sampleCount     Int      @default(0)
+  generatedAt     DateTime @default(now())
 }
 
 model ReviewItem {

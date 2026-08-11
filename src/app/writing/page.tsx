@@ -7,6 +7,7 @@ import {
   Draft,
   Platform,
   Pillar,
+  StyleProfile,
   PILLAR_LABELS,
   PLATFORM_LABELS,
   DRAFT_STATUS_LABELS,
@@ -20,14 +21,39 @@ interface TrendAngle {
 
 interface UnifiedStyleExample {
   id: string;
-  source: "link" | "file";
+  source: "link" | "file" | "draft";
   title: string;
   body: string;
+  pillar?: Pillar;
 }
 
 const SOURCE_BADGES: Record<string, { label: string; color: string }> = {
   link: { label: "Link", color: "bg-blue-500/20 text-blue-400" },
   file: { label: "File", color: "bg-orange-500/20 text-orange-400" },
+  draft: { label: "Draft", color: "bg-purple-500/20 text-purple-400" },
+};
+
+const TRAIT_LABELS: Record<string, string> = {
+  hook: "Mở đầu",
+  rhythm: "Nhịp điệu",
+  tone: "Giọng điệu",
+  pov: "Điểm nhìn",
+  closing: "Kết bài",
+};
+
+const TRAIT_KEYS = ["hook", "rhythm", "tone", "pov", "closing"] as const;
+
+interface HookOption {
+  archetype: string;
+  text: string;
+}
+
+const HOOK_ARCHETYPE_LABELS: Record<string, string> = {
+  confession: "Góc: Cá nhân",
+  contrarian: "Góc: Phản biện",
+  dataShock: "Góc: Số liệu",
+  directQuestion: "Góc: Câu hỏi",
+  storyInProgress: "Góc: Câu chuyện",
 };
 
 export default function CombinedWritingPage() {
@@ -50,6 +76,11 @@ export default function CombinedWritingPage() {
 
   // ─── Style References state ───
   const [styleRefs, setStyleRefs] = useState<UnifiedStyleExample[]>([]);
+  const [styleProfile, setStyleProfile] = useState<StyleProfile | null>(null);
+  const [profileAnalyzing, setProfileAnalyzing] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const profileAnalyzingRef = useRef(false);
+  const profileQueuedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [importMode, setImportMode] = useState<"link" | "file" | null>(null);
   const [linkUrl, setLinkUrl] = useState("");
@@ -66,15 +97,23 @@ export default function CombinedWritingPage() {
   const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
   const [editingBody, setEditingBody] = useState("");
   const [editingHook, setEditingHook] = useState("");
+  const [editorHookOptions, setEditorHookOptions] = useState<HookOption[]>([]);
+  const [pendingHookArchetype, setPendingHookArchetype] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [repurposing, setRepurposing] = useState<string | null>(null);
   const [showVersions, setShowVersions] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [lastGenStyle, setLastGenStyle] = useState<{
+    draftId: string;
+    score: number;
+    deltas: Record<string, number>;
+  } | null>(null);
 
   // ─── Cross-section: draft-from-idea flow ───
   const [selectedIdeaForDraft, setSelectedIdeaForDraft] = useState<Idea | null>(null);
-  const [hooks, setHooks] = useState<string[]>([]);
+  const [hooks, setHooks] = useState<HookOption[]>([]);
   const [selectedHook, setSelectedHook] = useState("");
+  const [selectedHookArchetype, setSelectedHookArchetype] = useState<string | null>(null);
   const [generatingHooks, setGeneratingHooks] = useState(false);
 
   useEffect(() => {
@@ -82,10 +121,14 @@ export default function CombinedWritingPage() {
       fetch("/api/ideas").then((r) => r.json()),
       fetch("/api/drafts").then((r) => r.json()),
       fetch("/api/style-references").then((r) => r.json()),
-    ]).then(([ideasData, draftsData, refs]) => {
+      fetch("/api/style-profile")
+        .then((r) => r.json())
+        .catch(() => ({ profile: null })),
+    ]).then(([ideasData, draftsData, refs, profileData]) => {
       setIdeas(ideasData);
       setDrafts(draftsData);
       setStyleRefs(refs);
+      if (profileData?.profile) setStyleProfile(profileData.profile);
       setLoading(false);
     });
   }, []);
@@ -182,7 +225,9 @@ export default function CombinedWritingPage() {
       }),
     });
     const data = await res.json();
-    setHooks(data.hooks);
+    setHooks(data.hooks ?? []);
+    setSelectedHook("");
+    setSelectedHookArchetype(null);
     setGeneratingHooks(false);
   };
 
@@ -197,6 +242,7 @@ export default function CombinedWritingPage() {
         pillar: selectedIdeaForDraft.pillar,
         title: selectedIdeaForDraft.text.slice(0, 60),
         hook: selectedHook,
+        selectedHookArchetype: selectedHookArchetype ?? undefined,
         body: "",
         outline: selectedIdeaForDraft.platform === "threads" ? "Thread numbered list" : "Long-form article with sections",
       }),
@@ -205,6 +251,7 @@ export default function CombinedWritingPage() {
     setDrafts((prev) => [draft, ...prev]);
     setSelectedIdeaForDraft(null);
     setSelectedHook("");
+    setSelectedHookArchetype(null);
     setHooks([]);
   };
 
@@ -270,6 +317,7 @@ export default function CombinedWritingPage() {
     setImportMode(null);
     setLinkUrl("");
     setImportFile(null);
+    refreshStyleProfile();
   };
 
   const handleDeleteSample = async (sampleId: string) => {
@@ -280,10 +328,42 @@ export default function CombinedWritingPage() {
     });
     const refs = await fetch("/api/style-references").then((r) => r.json());
     setStyleRefs(refs);
+    refreshStyleProfile();
   };
 
   const handleRemoveRef = async (ref: UnifiedStyleExample) => {
     await handleDeleteSample(ref.id);
+  };
+
+  const refreshStyleProfile = async () => {
+    if (profileAnalyzingRef.current) {
+      profileQueuedRef.current = true;
+      return;
+    }
+    profileAnalyzingRef.current = true;
+    setProfileAnalyzing(true);
+    setProfileError(null);
+    try {
+      const res = await fetch("/api/style-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "analyze" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setProfileError(data.error || "Không thể phân tích hồ sơ phong cách");
+      }
+      if (data.profile) setStyleProfile(data.profile);
+    } catch {
+      setProfileError("Không thể phân tích hồ sơ phong cách");
+    } finally {
+      profileAnalyzingRef.current = false;
+      setProfileAnalyzing(false);
+      if (profileQueuedRef.current) {
+        profileQueuedRef.current = false;
+        refreshStyleProfile();
+      }
+    }
   };
 
   // ─── AI Writing handlers ───
@@ -310,6 +390,14 @@ export default function CombinedWritingPage() {
     }
     setEditingBody(data.body);
     setEditingHook(data.hook);
+    const style =
+      data.styleScore !== undefined && data.styleScore !== null
+        ? { draftId: selectedDraft.id, score: data.styleScore, deltas: data.styleDeltas ?? {} }
+        : null;
+    setLastGenStyle(style);
+    setSelectedDraft((prev) =>
+      prev ? { ...prev, ...(style ? { styleScore: style.score, styleDeltas: style.deltas } : {}) } : prev
+    );
     setGenerating(false);
   };
 
@@ -332,7 +420,8 @@ export default function CombinedWritingPage() {
     if (!res.ok) {
       setAiError(data.error || "AI hook generation failed");
     } else if (data.hooks?.length) {
-      setEditingHook(data.hooks[0]);
+      setEditorHookOptions(data.hooks);
+      setPendingHookArchetype(null);
     }
     setGeneratingHooks(false);
   };
@@ -367,6 +456,8 @@ export default function CombinedWritingPage() {
         hook: data.hook,
         body: data.body,
         outline: data.body.slice(0, 100),
+        styleScore: data.styleScore,
+        styleDeltas: data.styleDeltas,
       }),
     });
     if (!newRes.ok) {
@@ -382,6 +473,10 @@ export default function CombinedWritingPage() {
 
   const handleSave = async () => {
     if (!selectedDraft) return;
+    const scoreForDraft =
+      lastGenStyle && lastGenStyle.draftId === selectedDraft.id
+        ? { styleScore: lastGenStyle.score, styleDeltas: lastGenStyle.deltas }
+        : {};
     const res = await fetch("/api/drafts", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -389,6 +484,8 @@ export default function CombinedWritingPage() {
         id: selectedDraft.id,
         body: editingBody,
         hook: editingHook,
+        selectedHookArchetype: pendingHookArchetype ?? undefined,
+        ...scoreForDraft,
       }),
     });
     const updated = await res.json();
@@ -398,12 +495,20 @@ export default function CombinedWritingPage() {
 
   const handleSubmitForReview = async () => {
     if (!selectedDraft) return;
+    const scoreForDraft =
+      lastGenStyle && lastGenStyle.draftId === selectedDraft.id
+        ? { styleScore: lastGenStyle.score, styleDeltas: lastGenStyle.deltas }
+        : {};
     const res = await fetch("/api/drafts", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: selectedDraft.id,
+        body: editingBody,
+        hook: editingHook,
         status: "needs_review",
+        selectedHookArchetype: pendingHookArchetype ?? undefined,
+        ...scoreForDraft,
       }),
     });
     if (!res.ok) return;
@@ -425,6 +530,8 @@ export default function CombinedWritingPage() {
     setSelectedDraft(draft);
     setEditingBody(draft.body);
     setEditingHook(draft.hook);
+    setEditorHookOptions([]);
+    setPendingHookArchetype(draft.selectedHookArchetype ?? null);
     setShowVersions(false);
   };
 
@@ -671,7 +778,9 @@ export default function CombinedWritingPage() {
                           </div>
                           <p className="text-xs text-[var(--muted)] mt-1 line-clamp-1">{ref.body.slice(0, 100)}...</p>
                         </div>
-                        <button onClick={() => handleRemoveRef(ref)} className="ml-4 text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 shrink-0">Remove</button>
+                        {ref.source !== "draft" && (
+                          <button onClick={() => handleRemoveRef(ref)} className="ml-4 text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 shrink-0">Remove</button>
+                        )}
                       </div>
                     );
                   })}
@@ -679,6 +788,55 @@ export default function CombinedWritingPage() {
               )}
             </div>
 
+            <div className="card border-[var(--accent-start)]/30">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="font-semibold">Hồ Sơ Phong Cách</h3>
+                  <p className="text-xs text-[var(--muted)] mt-1">
+                    {styleProfile
+                      ? `Dựa trên ${styleProfile.sampleCount} mẫu nguồn · Cập nhật lúc ${new Date(styleProfile.generatedAt).toLocaleString("vi-VN")}`
+                      : "Chưa có hồ sơ phong cách. Thêm mẫu nguồn rồi bấm “Cập nhật hồ sơ” để AI phân tích 5 đặc trưng văn phong."}
+                  </p>
+                </div>
+                <button
+                  onClick={refreshStyleProfile}
+                  disabled={profileAnalyzing || styleRefs.length === 0}
+                  className="gradient-btn text-sm shrink-0 disabled:opacity-50"
+                >
+                  {profileAnalyzing ? "Đang phân tích..." : "Cập nhật hồ sơ"}
+                </button>
+              </div>
+              {profileError && (
+                <p className="text-xs text-red-400 mb-3">⚠️ {profileError}</p>
+              )}
+              {styleProfile ? (
+                <div className="space-y-2">
+                  {TRAIT_KEYS.map((dim) => {
+                    const trait = styleProfile.traits[dim];
+                    const sourceRef = styleRefs.find((r) => r.id === trait.sourceId);
+                    const badge = sourceRef
+                      ? SOURCE_BADGES[sourceRef.source] || SOURCE_BADGES.link
+                      : null;
+                    return (
+                      <div key={dim} className="flex items-start gap-3 p-3 rounded-lg bg-[var(--surface)]">
+                        <span className="w-24 shrink-0 text-xs font-semibold text-[var(--accent-end)] uppercase tracking-wider pt-0.5">
+                          {TRAIT_LABELS[dim]}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm">{trait.summary}</p>
+                          <p className="text-xs text-[var(--muted)] italic mt-1">“{trait.anchorQuote}”</p>
+                        </div>
+                        {badge && <span className={`badge shrink-0 text-[0.65rem] ${badge.color}`}>{badge.label}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[var(--muted)] text-sm">
+                  {profileAnalyzing ? "Đang phân tích..." : "Chưa có dữ liệu."}
+                </p>
+              )}
+            </div>
 
           </div>
         )}
@@ -701,7 +859,7 @@ export default function CombinedWritingPage() {
           <div className="card border-[var(--accent-start)]/30 mb-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold">Create Draft from Idea</h3>
-              <button onClick={() => { setSelectedIdeaForDraft(null); setSelectedHook(""); setHooks([]); }} className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]">✕ Cancel</button>
+              <button onClick={() => { setSelectedIdeaForDraft(null); setSelectedHook(""); setSelectedHookArchetype(null); setHooks([]); }} className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]">✕ Cancel</button>
             </div>
             <div className="flex gap-1.5 mb-3">
               <span className="badge bg-purple-500/20 text-purple-400">{PLATFORM_LABELS[selectedIdeaForDraft.platform]}</span>
@@ -719,11 +877,17 @@ export default function CombinedWritingPage() {
                   <div
                     key={i}
                     className={`p-3 rounded-lg cursor-pointer text-sm transition ${
-                      selectedHook === h ? "bg-[var(--accent-start)]/20 border border-[var(--accent-start)]" : "bg-[var(--surface)] hover:bg-[var(--surface-hover)]"
+                      selectedHook === h.text ? "bg-[var(--accent-start)]/20 border border-[var(--accent-start)]" : "bg-[var(--surface)] hover:bg-[var(--surface-hover)]"
                     }`}
-                    onClick={() => setSelectedHook(h)}
+                    onClick={() => {
+                      setSelectedHook(h.text);
+                      setSelectedHookArchetype(h.archetype);
+                    }}
                   >
-                    {h}
+                    <span className="block text-xs font-medium text-[var(--accent-end)] mb-1">
+                      {HOOK_ARCHETYPE_LABELS[h.archetype] ?? h.archetype}
+                    </span>
+                    {h.text}
                   </div>
                 ))}
                 <button onClick={handleCreateDraftFromIdea} disabled={!selectedHook} className="gradient-btn mt-2">
@@ -753,6 +917,11 @@ export default function CombinedWritingPage() {
                 {draft.originalityRisk > 20 && (
                   <div className="mt-1.5 text-xs text-[var(--warning)]">⚠️ AI detection risk: {draft.originalityRisk}%</div>
                 )}
+                {draft.styleScore !== undefined && draft.styleScore !== null && (
+                  <div className={`mt-1.5 text-xs ${draft.styleScore >= 70 ? "text-green-400" : "text-yellow-400"}`}>
+                    🎨 Độ khớp phong cách: {Math.round(draft.styleScore)}%
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -768,6 +937,16 @@ export default function CombinedWritingPage() {
                         <span className="badge bg-purple-500/20 text-purple-400">{PLATFORM_LABELS[selectedDraft.platform]}</span>
                         <span className="badge bg-blue-500/20 text-blue-400">{PILLAR_LABELS[selectedDraft.pillar]}</span>
                         <span className="badge bg-gray-500/20 text-gray-400">{DRAFT_STATUS_LABELS[selectedDraft.status]}</span>
+                        {selectedDraft.styleScore !== undefined && selectedDraft.styleScore !== null && (
+                          <span className={`badge ${selectedDraft.styleScore >= 70 ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>
+                            🎨 {Math.round(selectedDraft.styleScore)}%
+                          </span>
+                        )}
+                        {selectedDraft.selectedHookArchetype && (
+                          <span className="badge bg-indigo-500/20 text-indigo-400">
+                            {HOOK_ARCHETYPE_LABELS[selectedDraft.selectedHookArchetype] ?? selectedDraft.selectedHookArchetype}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -820,6 +999,31 @@ export default function CombinedWritingPage() {
                       History v{selectedDraft.version}
                     </button>
                   </div>
+
+                  {editorHookOptions.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-sm text-[var(--muted)] mb-2">Choose a hook option:</p>
+                      <div className="space-y-2">
+                        {editorHookOptions.map((h, i) => (
+                          <div
+                            key={i}
+                            className={`p-3 rounded-lg cursor-pointer text-sm transition ${
+                              editingHook === h.text ? "bg-[var(--accent-start)]/20 border border-[var(--accent-start)]" : "bg-[var(--surface)] hover:bg-[var(--surface-hover)]"
+                            }`}
+                            onClick={() => {
+                              setEditingHook(h.text);
+                              setPendingHookArchetype(h.archetype);
+                            }}
+                          >
+                            <span className="block text-xs font-medium text-[var(--accent-end)] mb-1">
+                              {HOOK_ARCHETYPE_LABELS[h.archetype] ?? h.archetype}
+                            </span>
+                            {h.text}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {showVersions && selectedDraft.versionHistory.length > 0 && (

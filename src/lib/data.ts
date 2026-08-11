@@ -1,11 +1,13 @@
 import prisma from "./db";
-import type {
+import {
+  Prisma,
   Idea as PrismaIdea,
   Draft as PrismaDraft,
   ReviewItem as PrismaReviewItem,
   ScheduledPost as PrismaScheduledPost,
   PerformanceMetric as PrismaPerformanceMetric,
   StyleSample as PrismaStyleSample,
+  StyleProfile as PrismaStyleProfile,
 } from "@/generated/prisma/client";
 import {
   Idea,
@@ -16,6 +18,8 @@ import {
   TrendingTopic,
   StyleSample,
   StyleSampleSource,
+  StyleProfile,
+  StyleProfileTraits,
   Platform,
   Pillar,
 } from "./types";
@@ -51,6 +55,11 @@ function toDraft(row: PrismaDraft): Draft {
     aiModel: row.aiModel,
     status: row.status as Draft["status"],
     originalityRisk: row.originalityRisk,
+    styleScore: row.styleScore ?? undefined,
+    styleDeltas: row.styleDeltas
+      ? (row.styleDeltas as unknown as Record<string, number>)
+      : undefined,
+    selectedHookArchetype: row.selectedHookArchetype ?? undefined,
     isStyleReference: row.isStyleReference,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -172,6 +181,13 @@ export async function addDraft(data: Omit<Draft, "id" | "createdAt" | "updatedAt
       aiModel: "gpt-4o (mock)",
       status: "draft",
       isStyleReference: false,
+      ...(data.styleScore !== undefined ? { styleScore: data.styleScore } : {}),
+      ...(data.styleDeltas !== undefined
+        ? { styleDeltas: data.styleDeltas as unknown as Prisma.InputJsonValue }
+        : {}),
+      ...(data.selectedHookArchetype !== undefined
+        ? { selectedHookArchetype: data.selectedHookArchetype }
+        : {}),
     },
   });
   return toDraft(row);
@@ -389,6 +405,53 @@ export async function deleteStyleSample(id: string): Promise<boolean> {
   }
 }
 
+const DEFAULT_STYLE_PROFILE_USER = "default";
+
+function toStyleProfile(row: PrismaStyleProfile): StyleProfile {
+  return {
+    id: row.id,
+    userId: row.userId,
+    traits: row.traits as unknown as StyleProfileTraits,
+    sourceSampleIds: row.sourceSampleIds as unknown as string[],
+    sampleCount: row.sampleCount,
+    generatedAt: row.generatedAt.toISOString(),
+  };
+}
+
+export async function getStyleProfile(): Promise<StyleProfile | null> {
+  const row = await prisma.styleProfile.findUnique({
+    where: { userId: DEFAULT_STYLE_PROFILE_USER },
+  });
+  return row ? toStyleProfile(row) : null;
+}
+
+export interface StyleProfileInput {
+  traits: StyleProfileTraits;
+  sourceSampleIds: string[];
+  sampleCount: number;
+}
+
+export async function saveStyleProfile(data: StyleProfileInput): Promise<StyleProfile> {
+  const traits = data.traits as unknown as Prisma.InputJsonValue;
+  const sourceSampleIds = data.sourceSampleIds as unknown as Prisma.InputJsonValue;
+  const row = await prisma.styleProfile.upsert({
+    where: { userId: DEFAULT_STYLE_PROFILE_USER },
+    update: {
+      traits,
+      sourceSampleIds,
+      sampleCount: data.sampleCount,
+      generatedAt: new Date(),
+    },
+    create: {
+      userId: DEFAULT_STYLE_PROFILE_USER,
+      traits,
+      sourceSampleIds,
+      sampleCount: data.sampleCount,
+    },
+  });
+  return toStyleProfile(row);
+}
+
 export interface UnifiedStyleExample {
   id: string;
   source: StyleSampleSource;
@@ -399,13 +462,25 @@ export interface UnifiedStyleExample {
 }
 
 export async function getUnifiedStyleReferences(): Promise<UnifiedStyleExample[]> {
-  const samples = await prisma.styleSample.findMany();
-  return samples.map((sample) => ({
+  const [samples, flaggedDrafts] = await Promise.all([
+    prisma.styleSample.findMany(),
+    prisma.draft.findMany({ where: { isStyleReference: true } }),
+  ]);
+  const fromSamples: UnifiedStyleExample[] = samples.map((sample) => ({
     id: sample.id,
     source: sample.sourceType as StyleSampleSource,
     title: sample.title || "Sample",
     body: sample.extractedText,
   }));
+  const fromDrafts: UnifiedStyleExample[] = flaggedDrafts.map((draft) => ({
+    id: draft.id,
+    source: "draft",
+    title: draft.title,
+    body: draft.body,
+    platform: draft.platform as Platform,
+    pillar: draft.pillar as Pillar,
+  }));
+  return [...fromSamples, ...fromDrafts];
 }
 
 export interface CalendarDayEntry {

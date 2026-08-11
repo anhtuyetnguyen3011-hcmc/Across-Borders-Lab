@@ -7,6 +7,29 @@ export type ReviewStatus = "pending" | "needs_edit" | "approved";
 export type PublishStatus = "queued" | "published" | "failed";
 export type StyleSampleSource = "link" | "file" | "draft";
 
+export interface StyleProfileTrait {
+  summary: string;
+  anchorQuote: string;
+  sourceId: string;
+}
+
+export interface StyleProfileTraits {
+  hook: StyleProfileTrait;
+  rhythm: StyleProfileTrait;
+  tone: StyleProfileTrait;
+  pov: StyleProfileTrait;
+  closing: StyleProfileTrait;
+}
+
+export interface StyleProfile {
+  id: string;
+  userId: string;
+  traits: StyleProfileTraits;
+  sourceSampleIds: string[];
+  sampleCount: number;
+  generatedAt: string;
+}
+
 export interface StyleSample {
   id: string;
   sourceType: StyleSampleSource;
@@ -45,6 +68,9 @@ export interface Draft {
   aiModel: string;
   status: DraftStatus;
   originalityRisk: number;
+  styleScore?: number;
+  styleDeltas?: Record<string, number>;
+  selectedHookArchetype?: string;
   isStyleReference: boolean;
   createdAt: string;
   updatedAt: string;

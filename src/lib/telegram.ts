@@ -1,4 +1,5 @@
 import { Draft, ReviewItem } from "./types";
+import { describeLargestDelta } from "./styleScoring";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -57,12 +58,23 @@ export async function sendReviewNotification(
     ? `\n\n⚠️ *AI Risk Notes:*\n${review.aiRiskNotes.map((n) => `• ${n}`).join("\n")}`
     : "";
 
+  const styleBlock =
+    draft.styleScore !== undefined && draft.styleScore !== null
+      ? `\nĐộ khớp phong cách: ${Math.round(draft.styleScore)}%` +
+        (draft.styleScore < 70
+          ? (() => {
+              const flag = describeLargestDelta(draft.styleDeltas || {});
+              return flag ? `\n⚠️ ${flag}` : "";
+            })()
+          : "")
+      : "";
+
   const text = `📝 *New Draft Pending Review*
 
 *${draft.title}*
 Platform: ${platform}
 Pillar: ${pillar}
-Risk Score: ${draft.originalityRisk}%
+Risk Score: ${draft.originalityRisk}%${styleBlock}
 
 *Hook:* ${draft.hook.slice(0, 100)}...${riskNotes}
 

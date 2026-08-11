@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { Platform, Pillar } from "./types";
+import { Platform, Pillar, StyleProfile, StyleProfileTraits } from "./types";
 import { UnifiedStyleExample } from "./data";
 
 const GENERIC_PATTERNS = [
@@ -78,7 +78,7 @@ function buildStyleReferenceBlock(styleReferences?: UnifiedStyleExample[]): stri
   const examples = styleReferences
     .slice(0, 5)
     .map((ref) => {
-      const sourceLabel = ref.source === "link" ? "Link" : "File";
+      const sourceLabel = ref.source === "link" ? "Link" : ref.source === "draft" ? "Draft" : "File";
       const title = ref.title ? `\nTitle: ${ref.title}` : "";
       return `[Source: ${sourceLabel}]${title}\n${ref.body}`;
     })
@@ -86,15 +86,117 @@ function buildStyleReferenceBlock(styleReferences?: UnifiedStyleExample[]): stri
   return `=== STYLE REFERENCE ===\n${examples}\n=== END STYLE REFERENCE ===`;
 }
 
+const FEW_SHOT_CAP = 3;
+const STOPWORDS = new Set([
+  "the","a","an","and","or","but","for","to","in","on","of","with","at","by","from",
+  "is","are","was","were","be","been","do","does","did","i","you","we","they","he",
+  "she","it","this","that","these","those","your","my","our","their",
+  "của","và","là","cho","trong","các","những","một","không","với","có","sẽ","được",
+  "từ","đến","về","bạn","mình","tôi","theo","khi","nếu","như","rằng","vì","nên","đang",
+]);
+
+function tokenizeBrief(text: string): string[] {
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter(
+    (w) => w.length > 2 && !STOPWORDS.has(w)
+  );
+}
+
+function pickTopicNearest(
+  brief: string,
+  sources: UnifiedStyleExample[],
+  pillar?: Pillar,
+  max: number = FEW_SHOT_CAP
+): UnifiedStyleExample[] {
+  const tokens = tokenizeBrief(brief);
+  const scored = sources.map((source) => {
+    const haystack = `${source.body} ${source.title || ""}`.toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+      if (haystack.includes(token)) score += 1;
+    }
+    if (pillar && source.pillar === pillar) score += 3;
+    return { source, score };
+  });
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max)
+    .map((x) => x.source);
+}
+
+function truncate(text: string, max: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max)}...`;
+}
+
+function buildStyleProfileGuidance(
+  brief: string,
+  styleReferences: UnifiedStyleExample[],
+  styleProfile: StyleProfileTraits | null | undefined,
+  pillar?: Pillar
+): string {
+  const parts: string[] = [];
+
+  if (styleProfile) {
+    const t = styleProfile;
+    parts.push(
+      "=== STYLE PROFILE (five traits derived from the creator's past work) ===" +
+        `\nHOOK: ${t.hook.summary}\n  Anchor: “${t.hook.anchorQuote}”` +
+        `\nRHYTHM: ${t.rhythm.summary}\n  Anchor: “${t.rhythm.anchorQuote}”` +
+        `\nTONE: ${t.tone.summary}\n  Anchor: “${t.tone.anchorQuote}”` +
+        `\nPOINT OF VIEW: ${t.pov.summary}\n  Anchor: “${t.pov.anchorQuote}”` +
+        `\nCLOSING: ${t.closing.summary}\n  Anchor: “${t.closing.anchorQuote}”` +
+        "\n=== END STYLE PROFILE ==="
+    );
+  }
+
+  const examples = pickTopicNearest(brief, styleReferences, pillar, FEW_SHOT_CAP);
+  if (examples.length > 0) {
+    parts.push(
+      "=== STYLE EXAMPLES (topic-nearest, read the rhythm only) ===" +
+        examples
+          .map((ref) => {
+            const sourceLabel =
+              ref.source === "link" ? "Link" : ref.source === "draft" ? "Draft" : "File";
+            const title = ref.title ? `Title: ${ref.title}\n` : "";
+            return `[Source: ${sourceLabel}]\n${title}${truncate(ref.body, 700)}`;
+          })
+          .join("\n\n") +
+        "\n=== END STYLE EXAMPLES ==="
+    );
+  }
+
+  return parts.join("\n\n");
+}
+
 function styleInstruction(styleBlock: string): string {
   if (!styleBlock) return "";
   return (
-    "\n\nBelow are style references from the creator's published work. " +
-    "Analyze their TONE, RHYTHM, and STRUCTURE only. " +
+    "\n\nBelow are style references and a derived style profile from the creator's published work. " +
+    "Match the TONE, RHYTHM, VOICE, and STRUCTURE only. " +
     "Never copy, quote, or paraphrase their content, wording, or specific details. " +
     "They concern a DIFFERENT topic than the one you are asked to write; treat them as a different topic. " +
     "Your output must be entirely original text and must never reproduce any of the reference text.\n\n" +
     styleBlock
+  );
+}
+
+function buildStyleCorrectionHint(corrections?: Record<string, number>): string {
+  if (!corrections) return "";
+  const entries = Object.entries(corrections)
+    .filter(([, v]) => Math.abs(v) >= 5)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .slice(0, 3)
+    .map(
+      ([key, value]) =>
+        `${key} ${value > 0 ? "+" : ""}${Math.round(value)}% (baseline: ${key.replace(/_/g, " ")})`
+    );
+  if (entries.length === 0) return "";
+  return (
+    "\n\nStyle match correction: your previous attempt drifted from the creator's usual style. " +
+    "Adjust the following metrics to match their baseline: " +
+    entries.join("; ") +
+    "."
   );
 }
 
@@ -153,65 +255,133 @@ export async function expandIdea(
   return (variants[pillar] || variants.education).slice(0, 4);
 }
 
-const HOOK_SYSTEM_PROMPT = `You write opening hooks for social/blog content.
+const HOOK_ARCHETYPES = {
+  confession: "Mở bằng một trải nghiệm/sai lầm cá nhân đã qua",
+  contrarian: "Mở bằng việc bác bỏ một niềm tin phổ biến",
+  dataShock: "Mở bằng một con số/sự thật gây bất ngờ",
+  directQuestion: "Mở bằng một câu hỏi trực tiếp cho người đọc",
+  storyInProgress: "Mở giữa một tình huống/câu chuyện đang diễn ra",
+} as const;
 
-RULES:
-1. Each hook must reference a specific detail, claim, number, or tension that actually appears in the draft content provided.
-2. Do NOT default to "Here's why X% of people miss out on..." or "Most people think X, but..." unless a real statistic or contradiction exists in the draft.
-3. If the draft has no strong specific detail yet, base each hook on the single most concrete point available — even a small one — rather than inventing a generic template.
-4. Match tone/length to the platform (Threads = punchy, 1–2 lines; Blog = can be longer).
+type HookArchetype = keyof typeof HOOK_ARCHETYPES;
 
-Return ONLY a valid JSON array of 3 distinct hook strings, each grounded in the draft content provided. No numbering, no bullet markers, no extra text.`;
+const HOOK_SYSTEM_PROMPT = `You are a Vietnamese content writer. You write opening hooks in the author's personal voice as specified in the prompt. Reply with only the requested hook text.`;
 
-function parseHooks(raw: string): string[] {
-  try {
-    const parsed = parseJSONArray<string>(raw);
-    if (parsed.length > 0) return parsed.map((h) => h.trim()).filter(Boolean);
-  } catch {
-    // fall through to line-based parsing for non-JSON model output
+const ARCHETYPE_KEYWORDS: Record<HookArchetype, string[]> = {
+  confession: ["cá nhân", "trải nghiệm", "sai lầm", "bản thân", "từng", "kinh nghiệm", "kể"],
+  contrarian: ["phản biện", "bác bỏ", "niềm tin", "không phải", "thực ra", "ngược", "hiểu lầm"],
+  dataShock: ["số liệu", "con số", "phần trăm", "thống kê", "dữ liệu", "tỷ lệ"],
+  directQuestion: ["câu hỏi", "hỏi", "bạn có", "bạn đã"],
+  storyInProgress: ["câu chuyện", "đang diễn ra", "hôm nay", "vừa", "lúc này"],
+};
+
+function matchArchetypeToProfileHook(hookSummary: string, all: HookArchetype[]): HookArchetype | null {
+  const text = hookSummary.toLowerCase();
+  let best: HookArchetype | null = null;
+  let bestScore = 0;
+  for (const key of all) {
+    let score = 0;
+    for (const kw of ARCHETYPE_KEYWORDS[key]) {
+      if (text.includes(kw)) score += kw.length >= 3 ? 2 : 1;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = key;
+    }
   }
-  return raw
-    .split("\n")
-    .map((line) => line.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, "").trim())
-    .filter((line) => line.length > 0);
+  return bestScore > 0 ? best : null;
 }
 
-export async function generateHooks(
-  title: string,
-  pillar: Pillar,
-  platform: Platform,
-  draftBody?: string
-): Promise<string[]> {
-  let grounding = draftBody || "";
-  if (grounding.trim().length < 20) {
-    grounding = await getQuickOutline(title);
+function pickThreeArchetypes(
+  topic: string,
+  styleProfile: StyleProfile | null,
+  topPerformingHookArchetypes?: HookArchetype[]
+): HookArchetype[] {
+  const all = Object.keys(HOOK_ARCHETYPES) as HookArchetype[];
+
+  // Priority 1: archetypes that have historically performed well for this account
+  // (derived from Analytics top-posts hook classification, if available).
+  const proven = (topPerformingHookArchetypes ?? []).filter((a) => all.includes(a));
+
+  // Priority 2: whatever the Style Profile's `hook` trait most resembles
+  // (simple keyword match against archetype descriptions is enough — no embeddings needed).
+  const profileMatch = styleProfile
+    ? matchArchetypeToProfileHook(styleProfile.traits.hook.summary, all)
+    : null;
+
+  const picked = new Set<HookArchetype>();
+  for (const a of proven) if (picked.size < 3) picked.add(a);
+  if (profileMatch && picked.size < 3) picked.add(profileMatch);
+  for (const a of all) if (picked.size < 3) picked.add(a); // fill remaining slots
+
+  return Array.from(picked).slice(0, 3);
+}
+
+function buildHookPrompt(
+  topic: string,
+  archetypeKey: HookArchetype,
+  styleProfile: StyleProfile | null
+): string {
+  if (!styleProfile) {
+    return `
+Viết 1 câu hook (mở đầu bài viết) về chủ đề sau: "${topic}"
+Dạng hook: ${HOOK_ARCHETYPES[archetypeKey]}
+Chỉ trả về câu hook, không giải thích thêm, không đặt trong dấu ngoặc kép.
+    `.trim();
   }
 
-  const userPrompt = `Title: "${title}"
-Platform: ${platform}
-Pillar/audience: ${pillar}
-Draft content:
-${grounding}
+  const { pov, tone } = styleProfile.traits;
 
-Write 3 hooks, each based on a specific detail from the draft above.`;
+  return `
+Bạn đang viết một câu hook (mở đầu bài viết) về chủ đề sau:
+"${topic}"
 
-  let raw = await complete(HOOK_SYSTEM_PROMPT, userPrompt);
-  let hooks = parseHooks(raw);
+Dạng hook cần viết: ${HOOK_ARCHETYPES[archetypeKey]}
 
-  const generic = hooks.filter((h) => isGeneric(h));
-  if (generic.length > 0) {
-    console.warn(
-      `[ai] isGeneric() fired on ${generic.length} of ${hooks.length} hooks for "${title}"`
-    );
-    raw = await complete(
-      HOOK_SYSTEM_PROMPT,
-      `${userPrompt}\n\nYour previous output was too generic. Be more specific and reference the actual draft content provided.`
-    );
-    hooks = parseHooks(raw);
-  }
+QUY TẮC BẮT BUỘC — đây là giọng văn của tác giả, không được vi phạm dù dạng hook nào:
+- Xưng hô: ${pov.summary}
+  Ví dụ đúng giọng: "${pov.anchorQuote}"
+- Giọng điệu: ${tone.summary}
 
-  const clean = hooks.filter((h) => !isGeneric(h));
-  return clean.length > 0 ? clean : [grounding.trim().slice(0, 120)];
+QUAN TRỌNG: Kể cả khi hook thuộc dạng số liệu/dữ kiện (data shock) hoặc dạng
+phản biện (contrarian), câu chữ vẫn phải đi qua trải nghiệm hoặc góc nhìn cá
+nhân của tác giả — không được viết như một câu trích dẫn nghiên cứu hay tường
+thuật khách quan kiểu "X% người nói rằng...". Số liệu là chất liệu, không phải
+người kể chuyện.
+
+Sai (giọng báo cáo, không xưng đúng):
+"70% nhân viên MNC nói rằng việc bạn quen biết ai quan trọng hơn năng lực."
+
+Đúng (cùng số liệu, đúng giọng cá nhân):
+"Mình từng nghĩ làm tốt là đủ, cho đến khi thấy 70% đồng nghiệp thăng chức
+nhờ quen biết chứ không phải năng lực."
+
+Viết 1 câu hook duy nhất (1-2 câu), theo đúng dạng "${archetypeKey}" và đúng
+quy tắc giọng văn ở trên. Chỉ trả về câu hook, không giải thích thêm, không
+đặt trong dấu ngoặc kép.
+  `.trim();
+}
+
+function cleanHook(text: string): string {
+  return text
+    .replace(/^["“”'\u201c\u201d]+|["“”'\u201c\u201d]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export async function generateHookOptions(
+  topic: string,
+  styleProfile: StyleProfile | null
+): Promise<{ archetype: HookArchetype; text: string }[]> {
+  const archetypes = pickThreeArchetypes(topic, styleProfile);
+
+  return Promise.all(
+    archetypes.map(async (key) => {
+      const prompt = buildHookPrompt(topic, key, styleProfile);
+      const text = cleanHook(await complete(HOOK_SYSTEM_PROMPT, prompt));
+      return { archetype: key, text };
+    })
+  );
 }
 
 export async function generateDraft(
@@ -219,9 +389,13 @@ export async function generateDraft(
   platform: Platform,
   pillar: Pillar,
   hook: string,
-  styleReferences?: UnifiedStyleExample[]
+  styleReferences?: UnifiedStyleExample[],
+  styleProfile?: StyleProfileTraits | null,
+  styleCorrections?: Record<string, number>
 ): Promise<{ title: string; body: string; hook: string; outline: string }> {
-  const styleBlock = buildStyleReferenceBlock(styleReferences);
+  const styleBlock = styleProfile
+    ? buildStyleProfileGuidance(idea, styleReferences || [], styleProfile, pillar)
+    : buildStyleReferenceBlock(styleReferences);
 
   const system =
     `You are an expert content writer. Write original, engaging ${
@@ -242,7 +416,8 @@ export async function generateDraft(
   const user =
     `Topic: ${idea}\nHook: ${hook}\nPlatform: ${platform}\nPillar: ${pillar}\n\n` +
     `Formatting instructions:\n${formatInstruction}\n\n` +
-    `Write the content now.`;
+    `Write the content now.` +
+    buildStyleCorrectionHint(styleCorrections);
 
   const raw = await complete(system, user);
 
@@ -253,13 +428,103 @@ export async function generateDraft(
   return { title, body: extractBody(raw), hook: generatedHook, outline };
 }
 
+function parseJSONObject<T>(raw: string): T {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = fenced ? fenced[1] : raw;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  const slice = start !== -1 && end > start ? candidate.slice(start, end + 1) : candidate;
+  const parsed = JSON.parse(slice);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("LLM response was not a JSON object");
+  }
+  return parsed as T;
+}
+
+function truncateToWords(text: string, max: number): string {
+  return text.split(/\s+/).filter(Boolean).slice(0, max).join(" ");
+}
+
+const STYLE_PROFILE_DIMENSIONS = ["hook", "rhythm", "tone", "pov", "closing"] as const;
+
+const STYLE_PROFILE_SYSTEM_PROMPT = `You are a writing style analyst. Given a set of the creator's past writing samples, extract their consistent stylistic traits.
+
+Return ONLY a valid JSON object with EXACTLY this shape (no prose, no code fences):
+{
+  "hook":    { "summary": "string", "anchorQuote": "string", "sourceId": "string" },
+  "rhythm":  { "summary": "string", "anchorQuote": "string", "sourceId": "string" },
+  "tone":    { "summary": "string", "anchorQuote": "string", "sourceId": "string" },
+  "pov":     { "summary": "string", "anchorQuote": "string", "sourceId": "string" },
+  "closing": { "summary": "string", "anchorQuote": "string", "sourceId": "string" }
+}
+
+Rules:
+- "summary": 1-2 sentences, concrete and specific (mention pacing, sentence length, pronouns, sentence openers, structure).
+- "anchorQuote": a verbatim excerpt of at most 20 words copied EXACTLY from one of the provided sources.
+- "sourceId": must be one of the provided source ids.
+- "pov": the point of view / person used (mình/tôi/bạn, you-form, we-form, etc.).`;
+
+function validateStyleProfile(raw: unknown, sources: UnifiedStyleExample[]): StyleProfileTraits {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error("Style profile was not an object");
+  }
+  const obj = raw as Record<string, unknown>;
+  const sourceById = new Map(sources.map((s) => [s.id, s.body]));
+
+  const traits = {} as StyleProfileTraits;
+  for (const dim of STYLE_PROFILE_DIMENSIONS) {
+    const entry = obj[dim];
+    if (typeof entry !== "object" || entry === null) {
+      throw new Error(`Style profile missing trait: ${dim}`);
+    }
+    const { summary, anchorQuote, sourceId } = entry as Record<string, unknown>;
+    if (typeof summary !== "string" || !summary.trim()) {
+      throw new Error(`Style profile trait "${dim}" missing summary`);
+    }
+    if (typeof sourceId !== "string" || !sourceId.trim()) {
+      throw new Error(`Style profile trait "${dim}" missing sourceId`);
+    }
+    let quote = typeof anchorQuote === "string" ? anchorQuote.trim() : "";
+    if (!quote) {
+      throw new Error(`Style profile trait "${dim}" missing anchorQuote`);
+    }
+    const sourceBody = sourceById.get(sourceId) || "";
+    if (!sourceBody.toLowerCase().includes(quote.toLowerCase())) {
+      const fallback = truncateToWords(sourceBody, 20);
+      if (!fallback) throw new Error(`Style profile trait "${dim}" source not found`);
+      quote = fallback;
+    }
+    traits[dim] = {
+      summary: summary.trim(),
+      anchorQuote: truncateToWords(quote, 20),
+      sourceId,
+    };
+  }
+  return traits;
+}
+
+export async function analyzeStyleProfile(
+  sources: UnifiedStyleExample[]
+): Promise<StyleProfileTraits> {
+  const sourcesBlock = sources
+    .map((s, i) => `[SOURCE ${i + 1} id=${s.id}]\n${truncate(s.body, 2000)}`)
+    .join("\n\n");
+  const user = `Analyze the following ${sources.length} writing sample(s) and extract the style profile.\n\n${sourcesBlock}`;
+  const raw = await complete(STYLE_PROFILE_SYSTEM_PROMPT, user);
+  return validateStyleProfile(parseJSONObject<StyleProfileTraits>(raw), sources);
+}
+
 export async function repurposeDraft(
   body: string,
   fromPlatform: Platform,
   toPlatform: Platform,
-  styleReferences?: UnifiedStyleExample[]
+  styleReferences?: UnifiedStyleExample[],
+  styleProfile?: StyleProfileTraits | null,
+  styleCorrections?: Record<string, number>
 ): Promise<{ title: string; body: string; hook: string }> {
-  const styleBlock = buildStyleReferenceBlock(styleReferences);
+  const styleBlock = styleProfile
+    ? buildStyleProfileGuidance(body, styleReferences || [], styleProfile)
+    : buildStyleReferenceBlock(styleReferences);
 
   const system =
     `You are an expert content repurposer. Rewrite the source content into a ${
@@ -280,7 +545,8 @@ export async function repurposeDraft(
     `Source content (originally for ${fromPlatform}):\n${body}\n\n` +
     `Target platform: ${toPlatform}\n\n` +
     `Formatting instructions:\n${formatInstruction}\n\n` +
-    `Repurpose the content now.`;
+    `Repurpose the content now.` +
+    buildStyleCorrectionHint(styleCorrections);
 
   const raw = await complete(system, user);
 
@@ -414,13 +680,6 @@ Generate 5 content ideas grounded in the specific signals above.`;
   }
 
   return ideas.filter((i) => !isGeneric(i.title));
-}
-
-async function getQuickOutline(title: string): Promise<string> {
-  const system =
-    "You are a content strategist. Your output must be concrete and specific, never generic.";
-  const prompt = `Write 3 concrete bullet points (with specific facts, numbers, or claims — not generic statements) that could go into a piece of content titled "${title}". These will be used to ground an opening hook.`;
-  return complete(system, prompt);
 }
 
 function simulateDelay(ms: number): Promise<void> {
