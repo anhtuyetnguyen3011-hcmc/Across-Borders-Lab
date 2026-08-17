@@ -54,16 +54,20 @@ model StyleSample {
   sourceUrl     String?
   extractedText String
   title         String?
+  platform      String   // threads | website
   createdAt     DateTime @default(now())
 }
 
 model StyleProfile {
   id              String   @id @default(cuid())
-  userId          String   @unique @default("default")
+  userId          String   @default("default")
+  platform        String   @default("all") // all | threads | website
   traits          Json
   sourceSampleIds Json
   sampleCount     Int      @default(0)
   generatedAt     DateTime @default(now())
+
+  @@unique([userId, platform])
 }
 
 model ReviewItem {

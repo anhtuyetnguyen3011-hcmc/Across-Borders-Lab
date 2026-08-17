@@ -24,6 +24,7 @@ interface UnifiedStyleExample {
   source: "link" | "file" | "draft";
   title: string;
   body: string;
+  platform?: "threads" | "website";
   pillar?: Pillar;
 }
 
@@ -91,6 +92,9 @@ export default function CombinedWritingPage() {
   const [previewTitle, setPreviewTitle] = useState<string | null>(null);
   const [previewSourceUrl, setPreviewSourceUrl] = useState<string | null>(null);
   const [previewSourceType, setPreviewSourceType] = useState<"link" | "file">("link");
+  const [previewPlatform, setPreviewPlatform] = useState<string>("website");
+  const [platformFilter, setPlatformFilter] = useState<"all" | "threads" | "website">("all");
+  const [filePlatform, setFilePlatform] = useState<"threads" | "website">("website");
 
   // ─── AI Writing state ───
   const [drafts, setDrafts] = useState<Draft[]>([]);
@@ -111,6 +115,7 @@ export default function CombinedWritingPage() {
 
   // ─── Cross-section: draft-from-idea flow ───
   const [selectedIdeaForDraft, setSelectedIdeaForDraft] = useState<Idea | null>(null);
+  const [draftTargetPlatform, setDraftTargetPlatform] = useState<Platform>("threads");
   const [hooks, setHooks] = useState<HookOption[]>([]);
   const [selectedHook, setSelectedHook] = useState("");
   const [selectedHookArchetype, setSelectedHookArchetype] = useState<string | null>(null);
@@ -205,6 +210,7 @@ export default function CombinedWritingPage() {
 
   const handleWriteFromIdea = (idea: Idea) => {
     setSelectedIdeaForDraft(idea);
+    setDraftTargetPlatform(idea.platform);
     setSelectedHook("");
     setHooks([]);
     writingRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -221,7 +227,7 @@ export default function CombinedWritingPage() {
         action: "hooks",
         title: selectedIdeaForDraft.text,
         pillar: selectedIdeaForDraft.pillar,
-        platform: selectedIdeaForDraft.platform,
+        platform: draftTargetPlatform,
       }),
     });
     const data = await res.json();
@@ -238,13 +244,13 @@ export default function CombinedWritingPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ideaId: selectedIdeaForDraft.id,
-        platform: selectedIdeaForDraft.platform,
+        platform: draftTargetPlatform,
         pillar: selectedIdeaForDraft.pillar,
         title: selectedIdeaForDraft.text.slice(0, 60),
         hook: selectedHook,
         selectedHookArchetype: selectedHookArchetype ?? undefined,
         body: "",
-        outline: selectedIdeaForDraft.platform === "threads" ? "Thread numbered list" : "Long-form article with sections",
+        outline: draftTargetPlatform === "threads" ? "Thread numbered list" : "Long-form article with sections",
       }),
     });
     const draft = await res.json();
@@ -270,8 +276,9 @@ export default function CombinedWritingPage() {
       setPreviewTitle(data.title);
       setPreviewSourceUrl(data.sourceUrl);
       setPreviewSourceType("link");
+      setPreviewPlatform(data.platform ?? "website");
     } else {
-      setImportError(data.error || "Unable to fetch content from link");
+      setImportError(data.error || "Unable to analyze style profile");
     }
     setImporting(false);
   };
@@ -290,6 +297,7 @@ export default function CombinedWritingPage() {
       setPreviewTitle(data.title);
       setPreviewSourceUrl(null);
       setPreviewSourceType("file");
+      setPreviewPlatform(filePlatform);
     } else {
       setImportError(data.error || "Unable to read file");
     }
@@ -307,6 +315,7 @@ export default function CombinedWritingPage() {
         sourceUrl: previewSourceUrl,
         extractedText: previewText,
         title: previewTitle,
+        platform: previewPlatform,
       }),
     });
     const refs = await fetch("/api/style-references").then((r) => r.json());
@@ -314,6 +323,7 @@ export default function CombinedWritingPage() {
     setPreviewText(null);
     setPreviewTitle(null);
     setPreviewSourceUrl(null);
+    setPreviewPlatform("website");
     setImportMode(null);
     setLinkUrl("");
     setImportFile(null);
@@ -335,7 +345,38 @@ export default function CombinedWritingPage() {
     await handleDeleteSample(ref.id);
   };
 
-  const refreshStyleProfile = async () => {
+  const handleTogglePlatform = async (ref: UnifiedStyleExample) => {
+    const oldPlatform = ref.platform;
+    const newPlatform = oldPlatform === "threads" ? "website" : "threads";
+    await fetch("/api/style-references", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update-sample", sampleId: ref.id, platform: newPlatform }),
+    });
+    const refs = await fetch("/api/style-references").then((r) => r.json());
+    setStyleRefs(refs);
+    setStyleProfile(null);
+    await fetch("/api/style-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "analyze", platform: oldPlatform }),
+    });
+    await fetch("/api/style-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "analyze", platform: newPlatform }),
+    });
+    const profileRes = await fetch(`/api/style-profile?platform=${platformFilter}`)
+      .then((r) => r.json())
+      .catch(() => ({ profile: null }));
+    if (profileRes.profile) setStyleProfile(profileRes.profile);
+  };
+
+  const filteredRefs = platformFilter === "all"
+    ? styleRefs
+    : styleRefs.filter((r) => r.platform === platformFilter);
+
+  const refreshStyleProfile = async (scope?: "all" | "threads" | "website") => {
     if (profileAnalyzingRef.current) {
       profileQueuedRef.current = true;
       return;
@@ -343,19 +384,20 @@ export default function CombinedWritingPage() {
     profileAnalyzingRef.current = true;
     setProfileAnalyzing(true);
     setProfileError(null);
+    const platformScope = scope || platformFilter;
     try {
       const res = await fetch("/api/style-profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "analyze" }),
+        body: JSON.stringify({ action: "analyze", platform: platformScope }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setProfileError(data.error || "Không thể phân tích hồ sơ phong cách");
+        setProfileError(data.error || "Unable to analyze style profile");
       }
       if (data.profile) setStyleProfile(data.profile);
     } catch {
-      setProfileError("Không thể phân tích hồ sơ phong cách");
+      setProfileError("Unable to analyze style profile");
     } finally {
       profileAnalyzingRef.current = false;
       setProfileAnalyzing(false);
@@ -740,6 +782,27 @@ export default function CombinedWritingPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
+                  <div>
+                    <p className="text-sm text-[var(--muted)] mb-2">This file is for:</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setFilePlatform("threads")}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                          filePlatform === "threads"
+                            ? "bg-gradient-to-r from-[var(--accent-start)] to-[var(--accent-end)] text-white"
+                            : "bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                        }`}
+                      >Threads</button>
+                      <button
+                        onClick={() => setFilePlatform("website")}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                          filePlatform === "website"
+                            ? "bg-gradient-to-r from-[var(--accent-start)] to-[var(--accent-end)] text-white"
+                            : "bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                        }`}
+                      >Website</button>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-3">
                     <label className="gradient-btn text-sm whitespace-nowrap cursor-pointer">
                       Choose .docx / .pdf file
@@ -758,16 +821,41 @@ export default function CombinedWritingPage() {
               )}
             </div>
 
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-[var(--muted)]">Filter:</span>
+              {(["all", "threads", "website"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => {
+                    setPlatformFilter(f);
+                    setStyleProfile(null);
+                    fetch(`/api/style-profile?platform=${f}`)
+                      .then((r) => r.json())
+                      .then((d) => { if (d.profile) setStyleProfile(d.profile); })
+                      .catch(() => {});
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                    platformFilter === f
+                      ? "bg-gradient-to-r from-[var(--accent-start)] to-[var(--accent-end)] text-white"
+                      : "bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  {f === "all" ? "All" : f === "threads" ? "Threads" : "Website"}
+                </button>
+              ))}
+              <span className="text-xs text-[var(--muted)] ml-2">{filteredRefs.length} samples</span>
+            </div>
+
             <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Selected Style References ({styleRefs.length})</h3>
-                <span className="text-xs text-[var(--muted)]">AI uses samples when generating new content</span>
-              </div>
-              {styleRefs.length === 0 ? (
-                <p className="text-[var(--muted)] text-sm">No style references yet. Import a link or file above.</p>
+              {filteredRefs.length === 0 ? (
+                <p className="text-[var(--muted)] text-sm py-4 text-center">
+                  {platformFilter === "all"
+                    ? "No style references yet. Import a link or file above."
+                    : `No ${platformFilter} samples yet. Import content or toggle a sample\u2019s platform.`}
+                </p>
               ) : (
                 <div className="space-y-3">
-                  {styleRefs.map((ref) => {
+                  {filteredRefs.map((ref) => {
                     const badge = SOURCE_BADGES[ref.source] || SOURCE_BADGES.link;
                     return (
                       <div key={ref.id} className="p-3 rounded-lg bg-[var(--surface)] flex items-center justify-between">
@@ -775,6 +863,17 @@ export default function CombinedWritingPage() {
                           <p className="text-sm font-medium truncate">{ref.title}</p>
                           <div className="flex gap-1.5 mt-1 flex-wrap">
                             <span className={`badge text-[0.65rem] ${badge.color}`}>{badge.label}</span>
+                            <button
+                              onClick={() => handleTogglePlatform(ref)}
+                              className={`badge text-[0.65rem] cursor-pointer transition hover:brightness-125 ${
+                                ref.platform === "threads"
+                                  ? "bg-purple-500/20 text-purple-400"
+                                  : "bg-teal-500/20 text-teal-400"
+                              }`}
+                              title="Click to toggle platform"
+                            >
+                              {ref.platform === "threads" ? "Threads" : "Website"}
+                            </button>
                           </div>
                           <p className="text-xs text-[var(--muted)] mt-1 line-clamp-1">{ref.body.slice(0, 100)}...</p>
                         </div>
@@ -791,19 +890,19 @@ export default function CombinedWritingPage() {
             <div className="card border-[var(--accent-start)]/30">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
-                  <h3 className="font-semibold">Hồ Sơ Phong Cách</h3>
+                  <h3 className="font-semibold">Style Profile</h3>
                   <p className="text-xs text-[var(--muted)] mt-1">
                     {styleProfile
-                      ? `Dựa trên ${styleProfile.sampleCount} mẫu nguồn · Cập nhật lúc ${new Date(styleProfile.generatedAt).toLocaleString("vi-VN")}`
-                      : "Chưa có hồ sơ phong cách. Thêm mẫu nguồn rồi bấm “Cập nhật hồ sơ” để AI phân tích 5 đặc trưng văn phong."}
+                      ? `Based on ${styleProfile.sampleCount} source samples · Updated at ${new Date(styleProfile.generatedAt).toLocaleString("en-US")}`
+                      : "No style profile yet. Add source samples and click 'Update Profile' for AI to analyze 5 writing traits."}
                   </p>
                 </div>
                 <button
-                  onClick={refreshStyleProfile}
-                  disabled={profileAnalyzing || styleRefs.length === 0}
+                  onClick={() => refreshStyleProfile()}
+                  disabled={profileAnalyzing || filteredRefs.length === 0}
                   className="gradient-btn text-sm shrink-0 disabled:opacity-50"
                 >
-                  {profileAnalyzing ? "Đang phân tích..." : "Cập nhật hồ sơ"}
+                  {profileAnalyzing ? "Analyzing..." : "No data yet."}
                 </button>
               </div>
               {profileError && (
@@ -833,7 +932,7 @@ export default function CombinedWritingPage() {
                 </div>
               ) : (
                 <p className="text-[var(--muted)] text-sm">
-                  {profileAnalyzing ? "Đang phân tích..." : "Chưa có dữ liệu."}
+                  {profileAnalyzing ? "Analyzing..." : "No data yet."}
                 </p>
               )}
             </div>
@@ -859,13 +958,27 @@ export default function CombinedWritingPage() {
           <div className="card border-[var(--accent-start)]/30 mb-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold">Create Draft from Idea</h3>
-              <button onClick={() => { setSelectedIdeaForDraft(null); setSelectedHook(""); setSelectedHookArchetype(null); setHooks([]); }} className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]">✕ Cancel</button>
+              <button onClick={() => { setSelectedIdeaForDraft(null); setDraftTargetPlatform("threads"); setSelectedHook(""); setSelectedHookArchetype(null); setHooks([]); }} className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]">✕ Cancel</button>
             </div>
             <div className="flex gap-1.5 mb-3">
-              <span className="badge bg-purple-500/20 text-purple-400">{PLATFORM_LABELS[selectedIdeaForDraft.platform]}</span>
               <span className="badge bg-blue-500/20 text-blue-400">{PILLAR_LABELS[selectedIdeaForDraft.pillar]}</span>
             </div>
             <p className="text-sm mb-3 text-[var(--muted)]">{selectedIdeaForDraft.text}</p>
+            <div className="flex items-center gap-3 mb-3">
+              <label className="text-sm text-[var(--muted)]">Target platform</label>
+              <select
+                value={draftTargetPlatform}
+                onChange={(e) => {
+                  setDraftTargetPlatform(e.target.value as Platform);
+                  setSelectedHook("");
+                  setHooks([]);
+                }}
+                className="max-w-[180px]"
+              >
+                <option value="threads">Threads</option>
+                <option value="website">Website</option>
+              </select>
+            </div>
             {hooks.length === 0 ? (
               <button onClick={handleGenerateHooks} disabled={generatingHooks} className="gradient-btn">
                 {generatingHooks ? "Generating hooks..." : "✨ Suggest Hooks with AI"}

@@ -1,4 +1,5 @@
 import { getPerformanceMetrics } from "./data";
+import { prisma } from "./db";
 import { Pillar, Platform } from "./types";
 
 export interface AnalyticsSummary {
@@ -8,6 +9,7 @@ export interface AnalyticsSummary {
   bestPillar: { pillar: Pillar; engagementRate: number };
   topPosts: {
     title: string;
+    draftId: string;
     platform: Platform;
     views: number;
     engagementRate: number;
@@ -58,16 +60,23 @@ export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
     }
   });
 
-  const topPosts = metrics
+  const topMetrics = metrics
+    .sort((a, b) => b.views - a.views)
+    .slice(0, 5);
+
+  const draftIds = [...new Set(topMetrics.map((m) => m.draftId))];
+  const drafts = await prisma.draft.findMany({ where: { id: { in: draftIds } } });
+  const draftMap = new Map(drafts.map((d) => [d.id, d.title]));
+
+  const topPosts = topMetrics
     .map((m) => ({
-      title: `Post ${m.draftId}`,
+      title: draftMap.get(m.draftId) || "Untitled post",
+      draftId: m.draftId,
       platform: m.platform,
       views: m.views,
       engagementRate: m.engagementRate,
       pillar: m.pillar,
-    }))
-    .sort((a, b) => b.views - a.views)
-    .slice(0, 5);
+    }));
 
   return {
     totalViews7d,

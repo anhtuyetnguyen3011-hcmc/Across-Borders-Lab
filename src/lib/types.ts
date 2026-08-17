@@ -1,4 +1,6 @@
 export type Platform = "threads" | "website";
+export type StyleSamplePlatform = Platform;
+export type StyleProfileScope = "all" | Platform;
 export type Pillar = "education" | "career" | "lifestyle";
 export type IdeaSource = "manual" | "audio" | "link" | "trend";
 export type IdeaPriority = "high" | "medium" | "low";
@@ -24,6 +26,7 @@ export interface StyleProfileTraits {
 export interface StyleProfile {
   id: string;
   userId: string;
+  platform: StyleProfileScope;
   traits: StyleProfileTraits;
   sourceSampleIds: string[];
   sampleCount: number;
@@ -36,6 +39,7 @@ export interface StyleSample {
   sourceUrl: string | null;
   extractedText: string;
   title: string | null;
+  platform: StyleSamplePlatform;
   createdAt: string;
 }
 

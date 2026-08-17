@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import mammoth from "mammoth";
+import { detectPlatformFromSource, isNotionUrl } from "@/lib/platform";
+import { extractFromNotionPage } from "@/lib/notion";
 
 async function fetchAndExtractText(url: string): Promise<string> {
   const response = await fetch(url, {
@@ -85,6 +87,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
       }
 
+      if (isNotionUrl(url)) {
+        if (!process.env.NOTION_API_KEY) {
+          return NextResponse.json({
+            success: false,
+            error:
+              "Notion API is not configured. To import Notion pages directly, create an internal integration at https://www.notion.so/my-integrations and add NOTION_API_KEY to your environment. " +
+              "As a workaround, you can export the page from Notion as a file (.docx or .pdf) and upload it manually.",
+          }, { status: 400 });
+        }
+
+        try {
+          const result = await extractFromNotionPage(url);
+          return NextResponse.json({
+            success: true,
+            title: result.title,
+            extractedText: result.text,
+            sourceUrl: url,
+            platform: detectPlatformFromSource("link", url),
+          });
+        } catch (error) {
+          return NextResponse.json({
+            success: false,
+            error: error instanceof Error ? error.message : "Failed to extract content from Notion page",
+          }, { status: 500 });
+        }
+      }
+
       const response = await fetch(url, {
         headers: { "User-Agent": "Mozilla/5.0 (compatible; ContentWorkspace/1.0)" },
         signal: AbortSignal.timeout(15000),
@@ -98,6 +127,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         title,
         extractedText: text,
         sourceUrl: url,
+        platform: detectPlatformFromSource("link", url),
       });
     }
 
@@ -138,6 +168,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         title,
         extractedText: text,
         sourceUrl: null,
+        platform: null,
+        needsPlatform: true,
       });
     }
 

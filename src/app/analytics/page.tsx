@@ -10,6 +10,7 @@ interface AnalyticsSummary {
   bestPillar: { pillar: Pillar; engagementRate: number };
   topPosts: {
     title: string;
+    draftId: string;
     platform: string;
     views: number;
     engagementRate: number;
@@ -62,7 +63,7 @@ export default function AnalyticsPage() {
     const data = await res.json();
     setGenerating(false);
     if (data.draft) {
-      alert(`New draft created based on "${summary?.topPosts[0]?.title}"! Check the AI Writing tab.`);
+      alert(`New draft created: "${data.draft.title}" — based on "${summary?.topPosts[0]?.title}"! Check the AI Writing tab.`);
     } else {
       alert("Failed to create draft. Please try again.");
     }

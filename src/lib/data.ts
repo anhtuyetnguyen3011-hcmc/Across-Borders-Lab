@@ -20,8 +20,10 @@ import {
   StyleSampleSource,
   StyleProfile,
   StyleProfileTraits,
+  StyleProfileScope,
   Platform,
   Pillar,
+  StyleSamplePlatform,
 } from "./types";
 
 function toIdea(row: PrismaIdea & { drafts?: unknown[] }): Idea {
@@ -111,6 +113,7 @@ function toStyleSample(row: PrismaStyleSample): StyleSample {
     sourceUrl: row.sourceUrl,
     extractedText: row.extractedText,
     title: row.title,
+    platform: row.platform as StyleSamplePlatform,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -391,6 +394,7 @@ export async function addStyleSample(data: Omit<StyleSample, "id" | "createdAt">
       sourceUrl: data.sourceUrl,
       extractedText: data.extractedText,
       title: data.title,
+      platform: data.platform,
     },
   });
   return toStyleSample(row);
@@ -405,12 +409,22 @@ export async function deleteStyleSample(id: string): Promise<boolean> {
   }
 }
 
+export async function updateStyleSamplePlatform(id: string, platform: "threads" | "website"): Promise<StyleSample | null> {
+  try {
+    const row = await prisma.styleSample.update({ where: { id }, data: { platform } });
+    return toStyleSample(row);
+  } catch {
+    return null;
+  }
+}
+
 const DEFAULT_STYLE_PROFILE_USER = "default";
 
 function toStyleProfile(row: PrismaStyleProfile): StyleProfile {
   return {
     id: row.id,
     userId: row.userId,
+    platform: row.platform as StyleProfileScope,
     traits: row.traits as unknown as StyleProfileTraits,
     sourceSampleIds: row.sourceSampleIds as unknown as string[],
     sampleCount: row.sampleCount,
@@ -418,9 +432,9 @@ function toStyleProfile(row: PrismaStyleProfile): StyleProfile {
   };
 }
 
-export async function getStyleProfile(): Promise<StyleProfile | null> {
+export async function getStyleProfile(platform: StyleProfileScope = "all"): Promise<StyleProfile | null> {
   const row = await prisma.styleProfile.findUnique({
-    where: { userId: DEFAULT_STYLE_PROFILE_USER },
+    where: { userId_platform: { userId: DEFAULT_STYLE_PROFILE_USER, platform } },
   });
   return row ? toStyleProfile(row) : null;
 }
@@ -431,11 +445,11 @@ export interface StyleProfileInput {
   sampleCount: number;
 }
 
-export async function saveStyleProfile(data: StyleProfileInput): Promise<StyleProfile> {
+export async function saveStyleProfile(data: StyleProfileInput, platform: StyleProfileScope = "all"): Promise<StyleProfile> {
   const traits = data.traits as unknown as Prisma.InputJsonValue;
   const sourceSampleIds = data.sourceSampleIds as unknown as Prisma.InputJsonValue;
   const row = await prisma.styleProfile.upsert({
-    where: { userId: DEFAULT_STYLE_PROFILE_USER },
+    where: { userId_platform: { userId: DEFAULT_STYLE_PROFILE_USER, platform } },
     update: {
       traits,
       sourceSampleIds,
@@ -444,6 +458,7 @@ export async function saveStyleProfile(data: StyleProfileInput): Promise<StylePr
     },
     create: {
       userId: DEFAULT_STYLE_PROFILE_USER,
+      platform,
       traits,
       sourceSampleIds,
       sampleCount: data.sampleCount,
@@ -457,7 +472,7 @@ export interface UnifiedStyleExample {
   source: StyleSampleSource;
   title: string;
   body: string;
-  platform?: Platform;
+  platform?: StyleSamplePlatform;
   pillar?: Pillar;
 }
 
@@ -471,6 +486,7 @@ export async function getUnifiedStyleReferences(): Promise<UnifiedStyleExample[]
     source: sample.sourceType as StyleSampleSource,
     title: sample.title || "Sample",
     body: sample.extractedText,
+    platform: sample.platform as StyleSamplePlatform,
   }));
   const fromDrafts: UnifiedStyleExample[] = flaggedDrafts.map((draft) => ({
     id: draft.id,
@@ -481,6 +497,11 @@ export async function getUnifiedStyleReferences(): Promise<UnifiedStyleExample[]
     pillar: draft.pillar as Pillar,
   }));
   return [...fromSamples, ...fromDrafts];
+}
+
+export async function getUnifiedStyleReferencesForPlatform(filterPlatform: Platform): Promise<UnifiedStyleExample[]> {
+  const all = await getUnifiedStyleReferences();
+  return all.filter((ref) => ref.platform === filterPlatform);
 }
 
 export interface CalendarDayEntry {

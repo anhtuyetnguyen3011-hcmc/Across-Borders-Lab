@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getDrafts,
+  getDraft,
   addDraft,
   updateDraft,
   getUnifiedStyleReferences,
@@ -76,6 +77,12 @@ export async function POST(req: NextRequest) {
 
   if (body.action === "repurpose") {
     try {
+      const sourceDraft = await getDraft(body.draftId);
+      if (!sourceDraft) {
+        return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+      }
+      const fromPlatform = sourceDraft.platform;
+      const toPlatform = body.toPlatform as "threads" | "website";
       const [styleRefs, styleProfile] = await Promise.all([
         getUnifiedStyleReferences(),
         getStyleProfile(),
@@ -84,9 +91,9 @@ export async function POST(req: NextRequest) {
         styleRefs,
         (corrections) =>
           repurposeDraft(
-            body.body,
-            body.fromPlatform,
-            body.toPlatform,
+            sourceDraft.body,
+            fromPlatform,
+            toPlatform,
             styleRefs,
             styleProfile?.traits ?? null,
             corrections

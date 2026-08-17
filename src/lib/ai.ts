@@ -73,19 +73,6 @@ async function complete(system: string, user: string): Promise<string> {
   }
 }
 
-function buildStyleReferenceBlock(styleReferences?: UnifiedStyleExample[]): string {
-  if (!styleReferences || styleReferences.length === 0) return "";
-  const examples = styleReferences
-    .slice(0, 5)
-    .map((ref) => {
-      const sourceLabel = ref.source === "link" ? "Link" : ref.source === "draft" ? "Draft" : "File";
-      const title = ref.title ? `\nTitle: ${ref.title}` : "";
-      return `[Source: ${sourceLabel}]${title}\n${ref.body}`;
-    })
-    .join("\n\n");
-  return `=== STYLE REFERENCE ===\n${examples}\n=== END STYLE REFERENCE ===`;
-}
-
 const FEW_SHOT_CAP = 3;
 const STOPWORDS = new Set([
   "the","a","an","and","or","but","for","to","in","on","of","with","at","by","from",
@@ -105,19 +92,46 @@ function pickTopicNearest(
   brief: string,
   sources: UnifiedStyleExample[],
   pillar?: Pillar,
-  max: number = FEW_SHOT_CAP
+  max: number = FEW_SHOT_CAP,
+  platform?: Platform
 ): UnifiedStyleExample[] {
   const tokens = tokenizeBrief(brief);
-  const scored = sources.map((source) => {
+
+  function scoreSource(source: UnifiedStyleExample): number {
     const haystack = `${source.body} ${source.title || ""}`.toLowerCase();
     let score = 0;
     for (const token of tokens) {
       if (haystack.includes(token)) score += 1;
     }
     if (pillar && source.pillar === pillar) score += 3;
-    return { source, score };
-  });
-  return scored
+    return score;
+  }
+
+  if (platform) {
+    const platformSamples = sources
+      .filter((s) => s.platform === platform)
+      .map((s) => ({ source: s, score: scoreSource(s) }))
+      .sort((a, b) => b.score - a.score);
+
+    if (platformSamples.length >= max) {
+      return platformSamples.slice(0, max).map((x) => x.source);
+    }
+
+    const otherSamples = sources
+      .filter((s) => s.platform !== platform)
+      .map((s) => ({ source: s, score: scoreSource(s) }))
+      .sort((a, b) => b.score - a.score);
+
+    const remaining = max - platformSamples.length;
+    const filled = [
+      ...platformSamples.map((x) => x.source),
+      ...otherSamples.slice(0, remaining).map((x) => x.source),
+    ];
+    return filled.slice(0, max);
+  }
+
+  return sources
+    .map((source) => ({ source, score: scoreSource(source) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, max)
     .map((x) => x.source);
@@ -129,10 +143,11 @@ function truncate(text: string, max: number): string {
   return `${trimmed.slice(0, max)}...`;
 }
 
-function buildStyleProfileGuidance(
+function buildPlatformStyleContext(
+  targetPlatform: Platform,
   brief: string,
   styleReferences: UnifiedStyleExample[],
-  styleProfile: StyleProfileTraits | null | undefined,
+  styleProfile?: StyleProfileTraits | null,
   pillar?: Pillar
 ): string {
   const parts: string[] = [];
@@ -150,10 +165,11 @@ function buildStyleProfileGuidance(
     );
   }
 
-  const examples = pickTopicNearest(brief, styleReferences, pillar, FEW_SHOT_CAP);
+  const examples = pickTopicNearest(brief, styleReferences, pillar, FEW_SHOT_CAP, targetPlatform);
   if (examples.length > 0) {
+    const platformLabel = targetPlatform === "threads" ? "Threads" : "Website";
     parts.push(
-      "=== STYLE EXAMPLES (topic-nearest, read the rhythm only) ===" +
+      `=== STYLE EXAMPLES (${platformLabel}-native first, topic-nearest; read the rhythm only) ===` +
         examples
           .map((ref) => {
             const sourceLabel =
@@ -167,6 +183,12 @@ function buildStyleProfileGuidance(
   }
 
   return parts.join("\n\n");
+}
+
+function buildPlatformNativeInstruction(targetPlatform: Platform): string {
+  return targetPlatform === "threads"
+    ? "Write in a short, hook-first Threads style: open with a single punchy one-line hook that grabs attention immediately, then format the body as 3-4 numbered points using emoji markers (1️⃣, 2️⃣, 3️⃣), each followed by a short punchy explanation, and end with a conclusion or action item. Keep it scannable and conversational — short sentences, no long paragraphs."
+    : "Write in a full structured-prose website style: open with a hook, then format the body as a markdown article with a ## Background section, three ### subsections, and a ## Conclusion with a call to action. Write in an authoritative, editorial voice with complete sentences and developed paragraphs.";
 }
 
 function styleInstruction(styleBlock: string): string {
@@ -386,20 +408,24 @@ export async function generateHookOptions(
 
 export async function generateDraft(
   idea: string,
-  platform: Platform,
+  targetPlatform: Platform,
   pillar: Pillar,
   hook: string,
   styleReferences?: UnifiedStyleExample[],
   styleProfile?: StyleProfileTraits | null,
   styleCorrections?: Record<string, number>
 ): Promise<{ title: string; body: string; hook: string; outline: string }> {
-  const styleBlock = styleProfile
-    ? buildStyleProfileGuidance(idea, styleReferences || [], styleProfile, pillar)
-    : buildStyleReferenceBlock(styleReferences);
+  const styleBlock = buildPlatformStyleContext(
+    targetPlatform,
+    idea,
+    styleReferences || [],
+    styleProfile,
+    pillar
+  );
 
   const system =
     `You are an expert content writer. Write original, engaging ${
-      platform === "threads" ? "Threads post" : "website article"
+      targetPlatform === "threads" ? "Threads post" : "website article"
     } content for the requested topic.` +
     styleInstruction(styleBlock) +
     "\n\nRespond with EXACTLY this structure (no other text):\n" +
@@ -408,13 +434,10 @@ export async function generateDraft(
     "OUTLINE: <brief outline of the structure>\n" +
     "BODY:\n<the full content>";
 
-  const formatInstruction =
-    platform === "threads"
-      ? "Format the body as 4 numbered points using emoji markers (1️⃣, 2️⃣, 3️⃣, 4️⃣), each followed by a short punchy explanation, ending with a conclusion or action item. Keep it scannable and conversational."
-      : "Format the body as a markdown article: a ## Background section, three ### subsections, and a ## Conclusion with a call to action. Write in an authoritative, editorial voice.";
+  const formatInstruction = buildPlatformNativeInstruction(targetPlatform);
 
   const user =
-    `Topic: ${idea}\nHook: ${hook}\nPlatform: ${platform}\nPillar: ${pillar}\n\n` +
+    `Topic: ${idea}\nHook: ${hook}\nPlatform: ${targetPlatform}\nPillar: ${pillar}\n\n` +
     `Formatting instructions:\n${formatInstruction}\n\n` +
     `Write the content now.` +
     buildStyleCorrectionHint(styleCorrections);
@@ -522,12 +545,15 @@ export async function repurposeDraft(
   styleProfile?: StyleProfileTraits | null,
   styleCorrections?: Record<string, number>
 ): Promise<{ title: string; body: string; hook: string }> {
-  const styleBlock = styleProfile
-    ? buildStyleProfileGuidance(body, styleReferences || [], styleProfile)
-    : buildStyleReferenceBlock(styleReferences);
+  const styleBlock = buildPlatformStyleContext(
+    toPlatform,
+    body,
+    styleReferences || [],
+    styleProfile
+  );
 
   const system =
-    `You are an expert content repurposer. Rewrite the source content into a ${
+    `You are an expert content repurposer. Rewrite source content written natively for ${fromPlatform} into a ${
       toPlatform === "threads" ? "Threads post" : "website article"
     }, preserving the core meaning, value, and insights while adapting the format.` +
     styleInstruction(styleBlock) +
@@ -536,21 +562,25 @@ export async function repurposeDraft(
     "HOOK: <opening hook line>\n" +
     "BODY:\n<the full rewritten content>";
 
-  const formatInstruction =
-    toPlatform === "threads"
-      ? "Format the body as 3-4 numbered points using emoji markers (1️⃣, 2️⃣, 3️⃣), each followed by a short punchy explanation, ending with an action item."
-      : "Format the body as a markdown article with ## sections and ### subsections, expanding each point with more depth and context.";
+  const formatInstruction = buildPlatformNativeInstruction(toPlatform);
+
+  const transformInstruction =
+    fromPlatform === "threads"
+      ? "Expand the short-form thread into a full, structured long-form article with added depth and context."
+      : "Condense the long-form article into a short, punchy, hook-first Threads post that keeps only the strongest points.";
 
   const user =
+    `FROM ${fromPlatform} TO ${toPlatform} repurpose:\n` +
     `Source content (originally for ${fromPlatform}):\n${body}\n\n` +
     `Target platform: ${toPlatform}\n\n` +
+    `Transform instruction:\n${transformInstruction}\n\n` +
     `Formatting instructions:\n${formatInstruction}\n\n` +
     `Repurpose the content now.` +
     buildStyleCorrectionHint(styleCorrections);
 
   const raw = await complete(system, user);
 
-  const title = extractField(raw, "TITLE") || "Repurposed content";
+  const title = extractField(raw, "TITLE") || `${fromPlatform.charAt(0).toUpperCase() + fromPlatform.slice(1)} \u2192 ${toPlatform.charAt(0).toUpperCase() + toPlatform.slice(1)}`;
   const hook = extractField(raw, "HOOK") || body.slice(0, 120);
 
   return { title, body: extractBody(raw), hook };
