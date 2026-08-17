@@ -480,6 +480,7 @@ export default function CombinedWritingPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "repurpose",
+        draftId: draft.id,
         body: draft.body,
         fromPlatform: draft.platform,
         toPlatform,
