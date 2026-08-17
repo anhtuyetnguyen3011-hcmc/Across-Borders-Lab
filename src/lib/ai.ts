@@ -457,11 +457,62 @@ function parseJSONObject<T>(raw: string): T {
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
   const slice = start !== -1 && end > start ? candidate.slice(start, end + 1) : candidate;
-  const parsed = JSON.parse(slice);
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("LLM response was not a JSON object");
+  try {
+    const parsed = JSON.parse(slice);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("LLM response was not a JSON object");
+    }
+    return parsed as T;
+  } catch {
+    const repaired = repairJsonStrings(slice);
+    const parsed = JSON.parse(repaired);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("LLM response was not a JSON object");
+    }
+    return parsed as T;
   }
-  return parsed as T;
+}
+
+function repairJsonStrings(s: string): string {
+  const out: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (escaped) {
+      out.push(ch);
+      escaped = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\\") {
+        out.push(ch);
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        let j = i + 1;
+        while (j < s.length && (s[j] === " " || s[j] === "\n" || s[j] === "\r" || s[j] === "\t")) j++;
+        const next = s[j];
+        if (next === "," || next === "}" || next === "]" || next === ":") {
+          inString = false;
+          out.push(ch);
+          continue;
+        }
+        out.push('\\"');
+        continue;
+      }
+      out.push(ch);
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out.push(ch);
+      continue;
+    }
+    out.push(ch);
+  }
+  return out.join("");
 }
 
 function truncateToWords(text: string, max: number): string {

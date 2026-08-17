@@ -393,11 +393,15 @@ export default function CombinedWritingPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setProfileError(data.error || "Unable to analyze style profile");
+        setProfileError(data.message || data.error || "Profile analysis failed — try again.");
+      } else if (data.reason === "no_samples") {
+        setProfileError(null);
+      } else if (data.profile) {
+        setStyleProfile(data.profile);
+        setProfileError(null);
       }
-      if (data.profile) setStyleProfile(data.profile);
     } catch {
-      setProfileError("Unable to analyze style profile");
+      setProfileError("Profile analysis failed — try again.");
     } finally {
       profileAnalyzingRef.current = false;
       setProfileAnalyzing(false);

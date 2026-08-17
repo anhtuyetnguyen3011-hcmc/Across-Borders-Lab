@@ -1,6 +1,6 @@
 import prisma from "./db";
+import type { Prisma } from "@/generated/prisma/client";
 import {
-  Prisma,
   Idea as PrismaIdea,
   Draft as PrismaDraft,
   ReviewItem as PrismaReviewItem,

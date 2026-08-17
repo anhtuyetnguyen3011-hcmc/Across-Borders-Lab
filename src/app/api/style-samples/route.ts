@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import mammoth from "mammoth";
-import { detectPlatformFromSource, isNotionUrl } from "@/lib/platform";
+import { detectPlatformFromSource, isNotionUrl, isThreadsUrl } from "@/lib/platform";
 import { extractFromNotionPage } from "@/lib/notion";
 
 async function fetchAndExtractText(url: string): Promise<string> {
@@ -70,6 +70,49 @@ async function parsePdf(buffer: ArrayBuffer): Promise<string> {
   return data.text;
 }
 
+async function extractFromThreadsPost(url: string): Promise<{ title: string; text: string }> {
+  const oembedUrl = `https://graph.threads.com/oembed?url=${encodeURIComponent(url)}`;
+  const response = await fetch(oembedUrl, {
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(
+      `Unable to retrieve Threads post (HTTP ${response.status}). ` +
+      `The post may be private, deleted, or the URL may be invalid. ` +
+      `Details: ${errorBody.slice(0, 200)}`
+    );
+  }
+
+  const data = await response.json();
+
+  if (!data.html) {
+    throw new Error("Threads oEmbed response did not contain post content. The post may be private or deleted.");
+  }
+
+  const text = data.html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (text.length < 10) {
+    throw new Error("Extracted Threads post text is too short. The post may be empty or the content could not be parsed.");
+  }
+
+  const title = data.author_name
+    ? `Threads post by ${data.author_name}`
+    : `Threads post`;
+
+  return { title, text };
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const formData = await req.formData();
@@ -111,6 +154,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             success: false,
             error: error instanceof Error ? error.message : "Failed to extract content from Notion page",
           }, { status: 500 });
+        }
+      }
+
+      if (isThreadsUrl(url)) {
+        try {
+          const result = await extractFromThreadsPost(url);
+          return NextResponse.json({
+            success: true,
+            title: result.title,
+            extractedText: result.text,
+            sourceUrl: url,
+            platform: "threads" as const,
+          });
+        } catch (error) {
+          return NextResponse.json({
+            success: false,
+            error: error instanceof Error
+              ? error.message
+              : "Failed to extract content from Threads post. The post may be private, deleted, or the URL may be invalid.",
+          }, { status: 502 });
         }
       }
 
