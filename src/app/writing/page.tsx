@@ -83,7 +83,7 @@ export default function CombinedWritingPage() {
   const profileAnalyzingRef = useRef(false);
   const profileQueuedRef = useRef(false);
   const [loading, setLoading] = useState(true);
-  const [importMode, setImportMode] = useState<"link" | "file" | null>(null);
+  const [importMode, setImportMode] = useState<"link" | "file">("link");
   const [linkUrl, setLinkUrl] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
@@ -271,14 +271,20 @@ export default function CombinedWritingPage() {
     formData.append("url", linkUrl.trim());
     const res = await fetch("/api/style-samples", { method: "POST", body: formData });
     const data = await res.json();
-    if (data.success) {
+    if (data.success && data.extractedText && data.extractedText.trim().length > 0) {
       setPreviewText(data.extractedText);
       setPreviewTitle(data.title);
       setPreviewSourceUrl(data.sourceUrl);
       setPreviewSourceType("link");
       setPreviewPlatform(data.platform ?? "website");
+    } else if (data.success) {
+      setImportError(
+        "Không lấy được nội dung từ link này. " +
+        "Nội dung có thể quá ngắn hoặc trang yêu cầu JavaScript. " +
+        "Vui lòng thử link khác hoặc dán nội dung thủ công."
+      );
     } else {
-      setImportError(data.error || "Unable to analyze style profile");
+      setImportError(data.error || "Không thể phân tích nội dung từ link này.");
     }
     setImporting(false);
   };
@@ -292,14 +298,16 @@ export default function CombinedWritingPage() {
     formData.append("file", importFile);
     const res = await fetch("/api/style-samples", { method: "POST", body: formData });
     const data = await res.json();
-    if (data.success) {
+    if (data.success && data.extractedText && data.extractedText.trim().length > 0) {
       setPreviewText(data.extractedText);
       setPreviewTitle(data.title);
       setPreviewSourceUrl(null);
       setPreviewSourceType("file");
       setPreviewPlatform(filePlatform);
+    } else if (data.success) {
+      setImportError("Nội dung file quá ngắn hoặc không thể trích xuất văn bản. Vui lòng thử file khác.");
     } else {
-      setImportError(data.error || "Unable to read file");
+      setImportError(data.error || "Không thể đọc nội dung từ file này.");
     }
     setImporting(false);
   };
@@ -320,14 +328,17 @@ export default function CombinedWritingPage() {
     });
     const refs = await fetch("/api/style-references").then((r) => r.json());
     setStyleRefs(refs);
+    handleCloseImport();
+    setLinkUrl("");
+    refreshStyleProfile();
+  };
+
+  const handleCloseImport = () => {
     setPreviewText(null);
     setPreviewTitle(null);
     setPreviewSourceUrl(null);
-    setPreviewPlatform("website");
-    setImportMode(null);
-    setLinkUrl("");
+    setImportError(null);
     setImportFile(null);
-    refreshStyleProfile();
   };
 
   const handleDeleteSample = async (sampleId: string) => {
@@ -515,6 +526,7 @@ export default function CombinedWritingPage() {
     }
     const newDraft = await newRes.json();
     setDrafts((prev) => [newDraft, ...prev]);
+    handleSelectDraft(newDraft);
     setRepurposing(null);
   };
 
@@ -753,39 +765,88 @@ export default function CombinedWritingPage() {
         ) : (
           <div className="space-y-6">
             <div className="card border-[var(--accent-start)]/30">
-              <h3 className="font-semibold mb-3">Add Sample from Link or File</h3>
-              {!importMode ? (
-                <div className="flex gap-3">
-                  <button onClick={() => setImportMode("link")} className="flex-1 p-4 rounded-lg border border-[var(--card-border)] hover:border-[var(--accent-start)] text-left transition">
-                    <p className="font-medium text-sm">🔗 From link</p>
-                    <p className="text-xs text-[var(--muted)] mt-1">Paste a Threads or website URL</p>
-                  </button>
-                  <button onClick={() => setImportMode("file")} className="flex-1 p-4 rounded-lg border border-[var(--card-border)] hover:border-[var(--accent-start)] text-left transition">
-                    <p className="font-medium text-sm">📄 From file</p>
-                    <p className="text-xs text-[var(--muted)] mt-1">Upload a .docx or .pdf file</p>
-                  </button>
-                </div>
-              ) : previewText ? (
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold">Add Sample from Link or File</h3>
+                {previewText && (
+                  <button onClick={handleCloseImport} className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]">✕ Close</button>
+                )}
+              </div>
+
+              {/* Mode toggle */}
+              <div className="flex gap-1 mb-4 p-1 rounded-lg bg-[var(--surface)] w-fit">
+                <button
+                  onClick={() => { setImportMode("link"); handleCloseImport(); }}
+                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${
+                    importMode === "link"
+                      ? "bg-gradient-to-r from-[var(--accent-start)] to-[var(--accent-end)] text-white"
+                      : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >🔗 Link</button>
+                <button
+                  onClick={() => { setImportMode("file"); handleCloseImport(); }}
+                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${
+                    importMode === "file"
+                      ? "bg-gradient-to-r from-[var(--accent-start)] to-[var(--accent-end)] text-white"
+                      : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >📄 File</button>
+              </div>
+
+              {/* Link mode */}
+              {importMode === "link" && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">{previewTitle || "Preview"}</p>
-                    <button onClick={() => { setPreviewText(null); setImportMode(null); }} className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]">✕ Close</button>
-                  </div>
-                  <div className="p-3 rounded-lg bg-[var(--surface)] text-xs text-[var(--muted)] max-h-40 overflow-y-auto whitespace-pre-wrap">{previewText}</div>
-                  <button onClick={handleSaveSample} className="gradient-btn text-sm">Save as Style Reference</button>
-                </div>
-              ) : importMode === "link" ? (
-                <div className="space-y-3">
-                  <input type="url" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://twitter.com/... or https://example.com/..." />
-                  {importError && <p className="text-xs text-red-400">{importError}</p>}
                   <div className="flex gap-2">
-                    <button onClick={handleImportLink} disabled={importing || !linkUrl.trim()} className="gradient-btn text-sm">
-                      {importing ? "Fetching content..." : "Fetch Content"}
+                    <input
+                      type="url"
+                      value={linkUrl}
+                      onChange={(e) => setLinkUrl(e.target.value)}
+                      placeholder="Dán link Threads hoặc website..."
+                      className="flex-1"
+                    />
+                    <button onClick={handleImportLink} disabled={importing || !linkUrl.trim()} className="gradient-btn text-sm whitespace-nowrap">
+                      {importing ? "Đang lấy..." : "Lấy nội dung"}
                     </button>
-                    <button onClick={() => { setImportMode(null); setImportError(null); }} className="px-4 py-2 rounded-xl border border-[var(--card-border)] text-[var(--muted)] text-sm">Cancel</button>
                   </div>
+
+                  {importing && (
+                    <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                      <div className="w-4 h-4 border-2 border-[var(--accent-start)] border-t-transparent rounded-full animate-spin" />
+                      <span>Đang phân tích nội dung...</span>
+                    </div>
+                  )}
+
+                  {importError && <p className="text-xs text-red-400">⚠️ {importError}</p>}
+
+                  {previewText && (
+                    <div className="space-y-2 p-3 rounded-lg bg-[var(--surface)]">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium truncate">{previewTitle || "Preview"}</p>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {previewPlatform && (
+                            <span className={`badge text-[0.65rem] ${
+                              previewPlatform === "threads"
+                                ? "bg-purple-500/20 text-purple-400"
+                                : "bg-teal-500/20 text-teal-400"
+                            }`}>
+                              {previewPlatform === "threads" ? "Threads" : "Website"}
+                            </span>
+                          )}
+                          <span className={`badge text-[0.65rem] ${SOURCE_BADGES[previewSourceType]?.color || SOURCE_BADGES.link.color}`}>
+                            {SOURCE_BADGES[previewSourceType]?.label || "Link"}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-[var(--muted)] max-h-40 overflow-y-auto whitespace-pre-wrap">
+                        {previewText.length > 1000 ? previewText.slice(0, 1000) + "..." : previewText}
+                      </p>
+                      <button onClick={handleSaveSample} className="gradient-btn text-sm w-full">Save as Style Reference</button>
+                    </div>
+                  )}
                 </div>
-              ) : (
+              )}
+
+              {/* File mode */}
+              {importMode === "file" && (
                 <div className="space-y-3">
                   <div>
                     <p className="text-sm text-[var(--muted)] mb-2">This file is for:</p>
@@ -810,18 +871,35 @@ export default function CombinedWritingPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <label className="gradient-btn text-sm whitespace-nowrap cursor-pointer">
-                      Choose .docx / .pdf file
+                      Chọn file .docx / .pdf
                       <input type="file" accept=".docx,.pdf" onChange={(e) => setImportFile(e.target.files?.[0] || null)} className="hidden" />
                     </label>
                     {importFile && <span className="text-xs text-[var(--muted)]">{importFile.name}</span>}
                   </div>
-                  {importError && <p className="text-xs text-red-400">{importError}</p>}
-                  <div className="flex gap-2">
-                    <button onClick={handleImportFile} disabled={importing || !importFile} className="gradient-btn text-sm">
-                      {importing ? "Reading file..." : "Read Content"}
-                    </button>
-                    <button onClick={() => { setImportMode(null); setImportFile(null); setImportError(null); }} className="px-4 py-2 rounded-xl border border-[var(--card-border)] text-[var(--muted)] text-sm">Cancel</button>
-                  </div>
+
+                  {importing && (
+                    <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                      <div className="w-4 h-4 border-2 border-[var(--accent-start)] border-t-transparent rounded-full animate-spin" />
+                      <span>Đang đọc file...</span>
+                    </div>
+                  )}
+
+                  {importError && <p className="text-xs text-red-400">⚠️ {importError}</p>}
+
+                  {previewText && (
+                    <div className="space-y-2 p-3 rounded-lg bg-[var(--surface)]">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium truncate">{previewTitle || "Preview"}</p>
+                        <span className={`badge text-[0.65rem] ${SOURCE_BADGES[previewSourceType]?.color || SOURCE_BADGES.file.color}`}>
+                          {SOURCE_BADGES[previewSourceType]?.label || "File"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[var(--muted)] max-h-40 overflow-y-auto whitespace-pre-wrap">
+                        {previewText.length > 1000 ? previewText.slice(0, 1000) + "..." : previewText}
+                      </p>
+                      <button onClick={handleSaveSample} className="gradient-btn text-sm w-full">Save as Style Reference</button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

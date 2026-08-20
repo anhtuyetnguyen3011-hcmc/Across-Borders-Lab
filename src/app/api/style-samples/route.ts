@@ -17,6 +17,14 @@ async function fetchAndExtractText(url: string): Promise<string> {
 
   const html = await response.text();
 
+  if (/javascript\s+(?:must|needs?|is required)\s+(?:be\s+)?(?:enabled|turned on|allowed)|enable\s+javascript/i.test(html)) {
+    throw new Error(
+      "This page requires JavaScript to render its content and cannot be imported via URL. " +
+      "For Notion pages: configure NOTION_API_KEY and share the page with your Notion integration, " +
+      "or export the page as a file (.docx or .pdf) and upload it manually."
+    );
+  }
+
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -71,13 +79,16 @@ async function parsePdf(buffer: ArrayBuffer): Promise<string> {
 }
 
 async function extractFromThreadsPost(url: string): Promise<{ title: string; text: string }> {
-  const oembedUrl = `https://graph.threads.com/oembed?url=${encodeURIComponent(url)}`;
+  const oembedUrl = `https://graph.threads.net/oembed?url=${encodeURIComponent(url)}`;
+  console.log(`[StyleSamples] Threads oEmbed request: ${oembedUrl}`);
+
   const response = await fetch(oembedUrl, {
     signal: AbortSignal.timeout(15000),
   });
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
+    console.error(`[StyleSamples] Threads oEmbed failed (HTTP ${response.status}): ${errorBody.slice(0, 300)}`);
     throw new Error(
       `Unable to retrieve Threads post (HTTP ${response.status}). ` +
       `The post may be private, deleted, or the URL may be invalid. ` +
@@ -86,8 +97,10 @@ async function extractFromThreadsPost(url: string): Promise<{ title: string; tex
   }
 
   const data = await response.json();
+  console.log(`[StyleSamples] Threads oEmbed response keys: ${Object.keys(data).join(", ")}`);
 
   if (!data.html) {
+    console.error(`[StyleSamples] Threads oEmbed returned no html field. Full response: ${JSON.stringify(data).slice(0, 500)}`);
     throw new Error("Threads oEmbed response did not contain post content. The post may be private or deleted.");
   }
 
@@ -102,13 +115,19 @@ async function extractFromThreadsPost(url: string): Promise<{ title: string; tex
     .replace(/\s+/g, " ")
     .trim();
 
+  console.log(`[StyleSamples] Threads oEmbed stripped text length: ${text.length}, preview: ${text.slice(0, 200)}`);
+
   if (text.length < 10) {
-    throw new Error("Extracted Threads post text is too short. The post may be empty or the content could not be parsed.");
+    throw new Error(
+      "Không lấy được nội dung từ bài viết này. " +
+      "Bài viết có thể ở chế độ riêng tư hoặc nội dung không thể trích xuất tự động. " +
+      "Vui lòng dán nội dung bài viết thủ công."
+    );
   }
 
   const title = data.author_name
-    ? `Threads post by ${data.author_name}`
-    : `Threads post`;
+    ? `Bài viết Threads của ${data.author_name}`
+    : `Bài viết Threads`;
 
   return { title, text };
 }
@@ -167,13 +186,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             sourceUrl: url,
             platform: "threads" as const,
           });
-        } catch (error) {
-          return NextResponse.json({
-            success: false,
-            error: error instanceof Error
-              ? error.message
-              : "Failed to extract content from Threads post. The post may be private, deleted, or the URL may be invalid.",
-          }, { status: 502 });
+        } catch (oembedError) {
+          console.warn(`[StyleSamples] Threads oEmbed failed, trying direct fetch fallback: ${oembedError instanceof Error ? oembedError.message : oembedError}`);
+          try {
+            const text = await fetchAndExtractText(url);
+            return NextResponse.json({
+              success: true,
+              title: `Bài viết Threads`,
+              extractedText: text,
+              sourceUrl: url,
+              platform: "threads" as const,
+            });
+          } catch {
+            console.error(`[StyleSamples] Threads direct fetch also failed for: ${url}`);
+            return NextResponse.json({
+              success: false,
+              error:
+                "Không thể trích xuất nội dung từ bài viết Threads này. " +
+                "Bài viết có thể ở chế độ riêng tư, đã bị xóa, hoặc Threads yêu cầu JavaScript để hiển thị nội dung. " +
+                "Vui lòng mở bài viết trong trình duyệt, sao chép nội dung và dán thủ công.",
+            }, { status: 502 });
+          }
         }
       }
 
@@ -181,9 +214,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         headers: { "User-Agent": "Mozilla/5.0 (compatible; ContentWorkspace/1.0)" },
         signal: AbortSignal.timeout(15000),
       });
+      console.log(`[StyleSamples] Direct fetch status: ${response.status} for ${url}`);
       const html = await response.text();
       const title = extractTitleFromHtml(html);
       const text = await fetchAndExtractText(url);
+      console.log(`[StyleSamples] Extracted text length: ${text.length}, title: ${title}`);
 
       return NextResponse.json({
         success: true,
