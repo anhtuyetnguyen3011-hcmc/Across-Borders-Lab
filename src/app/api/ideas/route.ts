@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { getIdeas, addIdea, deleteIdea } from "@/lib/data";
 import { expandIdea } from "@/lib/ai";
+import { runAutoPipeline } from "@/lib/automation";
 
 export async function GET() {
   return NextResponse.json(await getIdeas());
@@ -21,6 +23,13 @@ export async function POST(req: NextRequest) {
     platform: body.platform,
     referenceLink: body.referenceLink,
   });
+
+  // Auto-pipeline: draft generation → style scoring → Telegram approval send
+  // runs server-side right after submission, without blocking the response.
+  after(async () => {
+    await runAutoPipeline(idea.id);
+  });
+
   return NextResponse.json(idea);
 }
 

@@ -12,32 +12,7 @@ import {
   repurposeDraft,
   generateHookOptions,
 } from "@/lib/ai";
-import { computeStyleBaseline, scoreDraftAgainstBaseline } from "@/lib/styleScoring";
-import type { UnifiedStyleExample } from "@/lib/data";
-
-async function runScoredGeneration<T>(
-  styleRefs: UnifiedStyleExample[],
-  attempt: (corrections?: Record<string, number>) => Promise<T>,
-  getBody: (result: T) => string
-): Promise<{ result: T; styleScore: number | null; styleDeltas: Record<string, number> | null }> {
-  const baseline = styleRefs.length > 0 ? computeStyleBaseline(styleRefs) : null;
-
-  let result = await attempt();
-  let styleScore: number | null = null;
-  let styleDeltas: Record<string, number> | null = null;
-
-  if (baseline) {
-    let scored = scoreDraftAgainstBaseline(getBody(result), baseline);
-    if (scored.score < 70) {
-      result = await attempt(scored.deltas);
-      scored = scoreDraftAgainstBaseline(getBody(result), baseline);
-    }
-    styleScore = scored.score;
-    styleDeltas = scored.deltas;
-  }
-
-  return { result, styleScore, styleDeltas };
-}
+import { runScoredGeneration } from "@/lib/scoredGeneration";
 
 export async function GET() {
   return NextResponse.json(await getDrafts());

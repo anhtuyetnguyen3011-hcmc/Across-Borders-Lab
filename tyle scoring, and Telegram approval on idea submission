@@ -1,0 +1,170 @@
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/api/ideas/route.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/api/reviews/route.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/writing/page.tsx', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/.gitignore b/.gitignore[m
+[1mindex f390d12..b318b11 100644[m
+[1m--- a/.gitignore[m
+[1m+++ b/.gitignore[m
+[36m@@ -41,3 +41,5 @@[m [myarn-error.log*[m
+ next-env.d.ts[m
+ [m
+ /src/generated/prisma[m
+[32m+[m[32m".env"[m[41m [m
+[32m+[m[32m".env.local"[m[41m [m
+[1mdiff --git a/src/app/api/drafts/route.ts b/src/app/api/drafts/route.ts[m
+[1mindex 12bdb7d..e17d2cc 100644[m
+[1m--- a/src/app/api/drafts/route.ts[m
+[1m+++ b/src/app/api/drafts/route.ts[m
+[36m@@ -12,32 +12,7 @@[m [mimport {[m
+   repurposeDraft,[m
+   generateHookOptions,[m
+ } from "@/lib/ai";[m
+[31m-import { computeStyleBaseline, scoreDraftAgainstBaseline } from "@/lib/styleScoring";[m
+[31m-import type { UnifiedStyleExample } from "@/lib/data";[m
+[31m-[m
+[31m-async function runScoredGeneration<T>([m
+[31m-  styleRefs: UnifiedStyleExample[],[m
+[31m-  attempt: (corrections?: Record<string, number>) => Promise<T>,[m
+[31m-  getBody: (result: T) => string[m
+[31m-): Promise<{ result: T; styleScore: number | null; styleDeltas: Record<string, number> | null }> {[m
+[31m-  const baseline = styleRefs.length > 0 ? computeStyleBaseline(styleRefs) : null;[m
+[31m-[m
+[31m-  let result = await attempt();[m
+[31m-  let styleScore: number | null = null;[m
+[31m-  let styleDeltas: Record<string, number> | null = null;[m
+[31m-[m
+[31m-  if (baseline) {[m
+[31m-    let scored = scoreDraftAgainstBaseline(getBody(result), baseline);[m
+[31m-    if (scored.score < 70) {[m
+[31m-      result = await attempt(scored.deltas);[m
+[31m-      scored = scoreDraftAgainstBaseline(getBody(result), baseline);[m
+[31m-    }[m
+[31m-    styleScore = scored.score;[m
+[31m-    styleDeltas = scored.deltas;[m
+[31m-  }[m
+[31m-[m
+[31m-  return { result, styleScore, styleDeltas };[m
+[31m-}[m
+[32m+[m[32mimport { runScoredGeneration } from "@/lib/scoredGeneration";[m
+ [m
+ export async function GET() {[m
+   return NextResponse.json(await getDrafts());[m
+[1mdiff --git a/src/app/api/ideas/route.ts b/src/app/api/ideas/route.ts[m
+[1mindex 61cf866..2fe91d2 100644[m
+[1m--- a/src/app/api/ideas/route.ts[m
+[1m+++ b/src/app/api/ideas/route.ts[m
+[36m@@ -1,6 +1,8 @@[m
+ import { NextRequest, NextResponse } from "next/server";[m
+[32m+[m[32mimport { after } from "next/server";[m
+ import { getIdeas, addIdea, deleteIdea } from "@/lib/data";[m
+ import { expandIdea } from "@/lib/ai";[m
+[32m+[m[32mimport { runAutoPipeline } from "@/lib/automation";[m
+ [m
+ export async function GET() {[m
+   return NextResponse.json(await getIdeas());[m
+[36m@@ -21,6 +23,13 @@[m [mexport async function POST(req: NextRequest) {[m
+     platform: body.platform,[m
+     referenceLink: body.referenceLink,[m
+   });[m
+[32m+[m
+[32m+[m[32m  // Auto-pipeline: draft generation → style scoring → Telegram approval send[m
+[32m+[m[32m  // runs server-side right after submission, without blocking the response.[m
+[32m+[m[32m  after(async () => {[m
+[32m+[m[32m    await runAutoPipeline(idea.id);[m
+[32m+[m[32m  });[m
+[32m+[m
+   return NextResponse.json(idea);[m
+ }[m
+ [m
+[1mdiff --git a/src/app/api/reviews/route.ts b/src/app/api/reviews/route.ts[m
+[1mindex 9599e55..b224366 100644[m
+[1m--- a/src/app/api/reviews/route.ts[m
+[1m+++ b/src/app/api/reviews/route.ts[m
+[36m@@ -1,7 +1,7 @@[m
+ import { NextRequest, NextResponse } from "next/server";[m
+[31m-import { getReviews, addReview, updateReview, getReviewByDraftId, getDraft } from "@/lib/data";[m
+[32m+[m[32mimport { getReviews, updateReview } from "@/lib/data";[m
+ import { generateAIReviewNotes } from "@/lib/ai";[m
+[31m-import { sendReviewNotification, isTelegramConfigured } from "@/lib/telegram";[m
+[32m+[m[32mimport { requestReviewForDraft } from "@/lib/reviewFlow";[m
+ [m
+ export async function GET() {[m
+   return NextResponse.json(await getReviews());[m
+[36m@@ -22,25 +22,7 @@[m [mexport async function POST(req: NextRequest) {[m
+     }[m
+   }[m
+ [m
+[31m-  const existing = await getReviewByDraftId(body.draftId);[m
+[31m-  if (existing) {[m
+[31m-    return NextResponse.json(existing);[m
+[31m-  }[m
+[31m-[m
+[31m-  const review = await addReview({[m
+[31m-    draftId: body.draftId,[m
+[31m-    status: "pending",[m
+[31m-    aiRiskNotes: body.aiRiskNotes || [],[m
+[31m-    reviewerComments: "",[m
+[31m-  });[m
+[31m-[m
+[31m-  if (isTelegramConfigured() && review.status === "pending") {[m
+[31m-    const draft = await getDraft(body.draftId);[m
+[31m-    if (draft) {[m
+[31m-      await sendReviewNotification(draft, review);[m
+[31m-    }[m
+[31m-  }[m
+[31m-[m
+[32m+[m[32m  const { review } = await requestReviewForDraft(body.draftId, body.aiRiskNotes || []);[m
+   return NextResponse.json(review);[m
+ }[m
+ [m
+[1mdiff --git a/src/app/writing/page.tsx b/src/app/writing/page.tsx[m
+[1mindex b4bc9b0..7179f9a 100644[m
+[1m--- a/src/app/writing/page.tsx[m
+[1m+++ b/src/app/writing/page.tsx[m
+[36m@@ -12,6 +12,7 @@[m [mimport {[m
+   PLATFORM_LABELS,[m
+   DRAFT_STATUS_LABELS,[m
+ } from "@/lib/types";[m
+[32m+[m[32mimport { STYLE_PASS_THRESHOLD } from "@/lib/styleThreshold";[m
+ [m
+ interface TrendAngle {[m
+   title: string;[m
+[36m@@ -1185,7 +1186,7 @@[m [mexport default function CombinedWritingPage() {[m
+                   <div className="mt-1.5 text-xs text-[var(--warning)]">⚠️ AI detection risk: {draft.originalityRisk}%</div>[m
+                 )}[m
+                 {draft.styleScore !== undefined && draft.styleScore !== null && ([m
+[31m-                  <div className={`mt-1.5 text-xs ${draft.styleScore >= 70 ? "text-green-400" : "text-yellow-400"}`}>[m
+[32m+[m[32m                  <div className={`mt-1.5 text-xs ${draft.styleScore >= STYLE_PASS_THRESHOLD ? "text-green-400" : "text-yellow-400"}`}>[m
+                     🎨 Độ khớp phong cách: {Math.round(draft.styleScore)}%[m
+                   </div>[m
+                 )}[m
+[36m@@ -1205,7 +1206,7 @@[m [mexport default function CombinedWritingPage() {[m
+                         <span className="badge bg-blue-500/20 text-blue-400">{PILLAR_LABELS[selectedDraft.pillar]}</span>[m
+                         <span className="badge bg-gray-500/20 text-gray-400">{DRAFT_STATUS_LABELS[selectedDraft.status]}</span>[m
+                         {selectedDraft.styleScore !== undefined && selectedDraft.styleScore !== null && ([m
+[31m-                          <span className={`badge ${selectedDraft.styleScore >= 70 ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>[m
+[32m+[m[32m                          <span className={`badge ${selectedDraft.styleScore >= STYLE_PASS_THRESHOLD ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>[m
+                             🎨 {Math.round(selectedDraft.styleScore)}%[m
+                           </span>[m
+                         )}[m
+[1mdiff --git a/src/lib/telegram.ts b/src/lib/telegram.ts[m
+[1mindex d5142f0..8c1ffcf 100644[m
+[1m--- a/src/lib/telegram.ts[m
+[1m+++ b/src/lib/telegram.ts[m
+[36m@@ -1,5 +1,6 @@[m
+ import { Draft, ReviewItem } from "./types";[m
+ import { describeLargestDelta } from "./styleScoring";[m
+[32m+[m[32mimport { STYLE_PASS_THRESHOLD } from "./scoredGeneration";[m
+ [m
+ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;[m
+ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;[m
+[36m@@ -61,7 +62,7 @@[m [mexport async function sendReviewNotification([m
+   const styleBlock =[m
+     draft.styleScore !== undefined && draft.styleScore !== null[m
+       ? `\nĐộ khớp phong cách: ${Math.round(draft.styleScore)}%` +[m
+[31m-        (draft.styleScore < 70[m
+[32m+[m[32m        (draft.styleScore < STYLE_PASS_THRESHOLD[m
+           ? (() => {[m
+               const flag = describeLargestDelta(draft.styleDeltas || {});[m
+               return flag ? `\n⚠️ ${flag}` : "";[m
