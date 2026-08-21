@@ -93,6 +93,8 @@ export default function CombinedWritingPage() {
   const [previewSourceUrl, setPreviewSourceUrl] = useState<string | null>(null);
   const [previewSourceType, setPreviewSourceType] = useState<"link" | "file">("link");
   const [previewPlatform, setPreviewPlatform] = useState<string>("website");
+  const [threadsManualSourceUrl, setThreadsManualSourceUrl] = useState<string | null>(null);
+  const [threadsManualText, setThreadsManualText] = useState("");
   const [platformFilter, setPlatformFilter] = useState<"all" | "threads" | "website">("all");
   const [filePlatform, setFilePlatform] = useState<"threads" | "website">("website");
 
@@ -271,7 +273,10 @@ export default function CombinedWritingPage() {
     formData.append("url", linkUrl.trim());
     const res = await fetch("/api/style-samples", { method: "POST", body: formData });
     const data = await res.json();
-    if (data.success && data.extractedText && data.extractedText.trim().length > 0) {
+    if (data.requiresManualInput) {
+      setThreadsManualSourceUrl(data.sourceUrl);
+      setThreadsManualText("");
+    } else if (data.success && data.extractedText && data.extractedText.trim().length > 0) {
       setPreviewText(data.extractedText);
       setPreviewTitle(data.title);
       setPreviewSourceUrl(data.sourceUrl);
@@ -333,12 +338,36 @@ export default function CombinedWritingPage() {
     refreshStyleProfile();
   };
 
+  const handleSaveThreadsManual = async () => {
+    if (!threadsManualText.trim() || !threadsManualSourceUrl) return;
+    const title = threadsManualText.trim().split("\n")[0].slice(0, 120) || "Bài viết Threads";
+    await fetch("/api/style-references", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "add-sample",
+        sourceType: "link",
+        sourceUrl: threadsManualSourceUrl,
+        extractedText: threadsManualText.trim(),
+        title,
+        platform: "threads",
+      }),
+    });
+    const refs = await fetch("/api/style-references").then((r) => r.json());
+    setStyleRefs(refs);
+    handleCloseImport();
+    setLinkUrl("");
+    refreshStyleProfile();
+  };
+
   const handleCloseImport = () => {
     setPreviewText(null);
     setPreviewTitle(null);
     setPreviewSourceUrl(null);
     setImportError(null);
     setImportFile(null);
+    setThreadsManualSourceUrl(null);
+    setThreadsManualText("");
   };
 
   const handleDeleteSample = async (sampleId: string) => {
@@ -767,7 +796,7 @@ export default function CombinedWritingPage() {
             <div className="card border-[var(--accent-start)]/30">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold">Add Sample from Link or File</h3>
-                {previewText && (
+                {(previewText || threadsManualSourceUrl) && (
                   <button onClick={handleCloseImport} className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]">✕ Close</button>
                 )}
               </div>
@@ -795,52 +824,89 @@ export default function CombinedWritingPage() {
               {/* Link mode */}
               {importMode === "link" && (
                 <div className="space-y-3">
-                  <div className="flex gap-2">
-                    <input
-                      type="url"
-                      value={linkUrl}
-                      onChange={(e) => setLinkUrl(e.target.value)}
-                      placeholder="Dán link Threads hoặc website..."
-                      className="flex-1"
-                    />
-                    <button onClick={handleImportLink} disabled={importing || !linkUrl.trim()} className="gradient-btn text-sm whitespace-nowrap">
-                      {importing ? "Đang lấy..." : "Lấy nội dung"}
-                    </button>
-                  </div>
-
-                  {importing && (
-                    <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                      <div className="w-4 h-4 border-2 border-[var(--accent-start)] border-t-transparent rounded-full animate-spin" />
-                      <span>Đang phân tích nội dung...</span>
-                    </div>
-                  )}
-
-                  {importError && <p className="text-xs text-red-400">⚠️ {importError}</p>}
-
-                  {previewText && (
-                    <div className="space-y-2 p-3 rounded-lg bg-[var(--surface)]">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium truncate">{previewTitle || "Preview"}</p>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {previewPlatform && (
-                            <span className={`badge text-[0.65rem] ${
-                              previewPlatform === "threads"
-                                ? "bg-purple-500/20 text-purple-400"
-                                : "bg-teal-500/20 text-teal-400"
-                            }`}>
-                              {previewPlatform === "threads" ? "Threads" : "Website"}
-                            </span>
-                          )}
-                          <span className={`badge text-[0.65rem] ${SOURCE_BADGES[previewSourceType]?.color || SOURCE_BADGES.link.color}`}>
-                            {SOURCE_BADGES[previewSourceType]?.label || "Link"}
-                          </span>
-                        </div>
+                  {threadsManualSourceUrl ? (
+                    /* ── Threads manual-paste state ── */
+                    <>
+                      <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20 space-y-2">
+                        <p className="text-xs text-purple-300">
+                          Threads chưa hỗ trợ tự động lấy nội dung. Vui lòng mở bài viết, copy nội dung và dán vào đây:
+                        </p>
+                        <a
+                          href={threadsManualSourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-[var(--accent-end)] hover:underline"
+                        >
+                          Mở bài viết trên Threads ↗
+                        </a>
                       </div>
-                      <p className="text-xs text-[var(--muted)] max-h-40 overflow-y-auto whitespace-pre-wrap">
-                        {previewText.length > 1000 ? previewText.slice(0, 1000) + "..." : previewText}
-                      </p>
-                      <button onClick={handleSaveSample} className="gradient-btn text-sm w-full">Save as Style Reference</button>
-                    </div>
+                      <textarea
+                        value={threadsManualText}
+                        onChange={(e) => setThreadsManualText(e.target.value)}
+                        placeholder="Dán nội dung bài viết Threads vào đây..."
+                        className="min-h-[140px] text-sm"
+                      />
+                      <button
+                        onClick={handleSaveThreadsManual}
+                        disabled={!threadsManualText.trim()}
+                        className={`gradient-btn text-sm w-full ${
+                          !threadsManualText.trim() ? "opacity-50 cursor-not-allowed" : ""
+                        }`}
+                      >
+                        Save as Style Reference
+                      </button>
+                    </>
+                  ) : (
+                    /* ── Normal URL input ── */
+                    <>
+                      <div className="flex gap-2">
+                        <input
+                          type="url"
+                          value={linkUrl}
+                          onChange={(e) => setLinkUrl(e.target.value)}
+                          placeholder="Dán link Threads hoặc website..."
+                          className="flex-1"
+                        />
+                        <button onClick={handleImportLink} disabled={importing || !linkUrl.trim()} className="gradient-btn text-sm whitespace-nowrap">
+                          {importing ? "Đang lấy..." : "Lấy nội dung"}
+                        </button>
+                      </div>
+
+                      {importing && (
+                        <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                          <div className="w-4 h-4 border-2 border-[var(--accent-start)] border-t-transparent rounded-full animate-spin" />
+                          <span>Đang phân tích nội dung...</span>
+                        </div>
+                      )}
+
+                      {importError && <p className="text-xs text-red-400">⚠️ {importError}</p>}
+
+                      {previewText && (
+                        <div className="space-y-2 p-3 rounded-lg bg-[var(--surface)]">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium truncate">{previewTitle || "Preview"}</p>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {previewPlatform && (
+                                <span className={`badge text-[0.65rem] ${
+                                  previewPlatform === "threads"
+                                    ? "bg-purple-500/20 text-purple-400"
+                                    : "bg-teal-500/20 text-teal-400"
+                                }`}>
+                                  {previewPlatform === "threads" ? "Threads" : "Website"}
+                                </span>
+                              )}
+                              <span className={`badge text-[0.65rem] ${SOURCE_BADGES[previewSourceType]?.color || SOURCE_BADGES.link.color}`}>
+                                {SOURCE_BADGES[previewSourceType]?.label || "Link"}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-[var(--muted)] max-h-40 overflow-y-auto whitespace-pre-wrap">
+                            {previewText.length > 1000 ? previewText.slice(0, 1000) + "..." : previewText}
+                          </p>
+                          <button onClick={handleSaveSample} className="gradient-btn text-sm w-full">Save as Style Reference</button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -875,6 +941,11 @@ export default function CombinedWritingPage() {
                       <input type="file" accept=".docx,.pdf" onChange={(e) => setImportFile(e.target.files?.[0] || null)} className="hidden" />
                     </label>
                     {importFile && <span className="text-xs text-[var(--muted)]">{importFile.name}</span>}
+                    {importFile && (
+                      <button onClick={handleImportFile} disabled={importing} className="gradient-btn text-sm whitespace-nowrap">
+                        {importing ? "Đang đọc..." : "Đọc nội dung"}
+                      </button>
+                    )}
                   </div>
 
                   {importing && (
