@@ -14,6 +14,15 @@ import {
 } from "@/lib/ai";
 import { runScoredGeneration } from "@/lib/scoredGeneration";
 
+function logAIError(action: string, error: unknown): void {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: number }).status
+      : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[api/drafts] ${action} failed:`, { message, status: status ?? null });
+}
+
 export async function GET() {
   return NextResponse.json(await getDrafts());
 }
@@ -43,6 +52,7 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json({ ...result, styleScore, styleDeltas });
     } catch (error) {
+      logAIError("generate", error);
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "AI generation failed" },
         { status: 500 }
@@ -77,6 +87,7 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json({ ...result, styleScore, styleDeltas });
     } catch (error) {
+      logAIError("repurpose", error);
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "AI repurposing failed" },
         { status: 500 }
@@ -90,6 +101,7 @@ export async function POST(req: NextRequest) {
       const hooks = await generateHookOptions(body.title, styleProfile);
       return NextResponse.json({ hooks });
     } catch (error) {
+      logAIError("hooks", error);
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "AI hook generation failed" },
         { status: 500 }
@@ -97,21 +109,29 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const draft = await addDraft({
-    ideaId: body.ideaId,
-    platform: body.platform,
-    pillar: body.pillar,
-    title: body.title,
-    hook: body.hook,
-    body: body.body,
-    outline: body.outline || "",
-    metaDescription: body.metaDescription,
-    targetKeyword: body.targetKeyword,
-    threadStructure: body.threadStructure,
-    styleScore: body.styleScore,
-    styleDeltas: body.styleDeltas,
-  });
-  return NextResponse.json(draft);
+  try {
+    const draft = await addDraft({
+      ideaId: body.ideaId,
+      platform: body.platform,
+      pillar: body.pillar,
+      title: body.title,
+      hook: body.hook,
+      body: body.body,
+      outline: body.outline || "",
+      metaDescription: body.metaDescription,
+      targetKeyword: body.targetKeyword,
+      threadStructure: body.threadStructure,
+      styleScore: body.styleScore,
+      styleDeltas: body.styleDeltas,
+    });
+    return NextResponse.json(draft);
+  } catch (error) {
+    logAIError("addDraft", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to create draft" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function PUT(req: NextRequest) {
