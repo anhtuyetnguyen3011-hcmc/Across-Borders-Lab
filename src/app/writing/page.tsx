@@ -12,6 +12,7 @@ import {
   PLATFORM_LABELS,
   DRAFT_STATUS_LABELS,
 } from "@/lib/types";
+import { STYLE_PASS_THRESHOLD } from "@/lib/styleThreshold";
 
 interface TrendAngle {
   title: string;
@@ -1185,7 +1186,7 @@ export default function CombinedWritingPage() {
                   <div className="mt-1.5 text-xs text-[var(--warning)]">⚠️ AI detection risk: {draft.originalityRisk}%</div>
                 )}
                 {draft.styleScore !== undefined && draft.styleScore !== null && (
-                  <div className={`mt-1.5 text-xs ${draft.styleScore >= 70 ? "text-green-400" : "text-yellow-400"}`}>
+                  <div className={`mt-1.5 text-xs ${draft.styleScore >= STYLE_PASS_THRESHOLD ? "text-green-400" : "text-yellow-400"}`}>
                     🎨 Độ khớp phong cách: {Math.round(draft.styleScore)}%
                   </div>
                 )}
@@ -1205,7 +1206,7 @@ export default function CombinedWritingPage() {
                         <span className="badge bg-blue-500/20 text-blue-400">{PILLAR_LABELS[selectedDraft.pillar]}</span>
                         <span className="badge bg-gray-500/20 text-gray-400">{DRAFT_STATUS_LABELS[selectedDraft.status]}</span>
                         {selectedDraft.styleScore !== undefined && selectedDraft.styleScore !== null && (
-                          <span className={`badge ${selectedDraft.styleScore >= 70 ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>
+                          <span className={`badge ${selectedDraft.styleScore >= STYLE_PASS_THRESHOLD ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>
                             🎨 {Math.round(selectedDraft.styleScore)}%
                           </span>
                         )}

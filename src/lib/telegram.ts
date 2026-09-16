@@ -1,5 +1,6 @@
 import { Draft, ReviewItem } from "./types";
 import { describeLargestDelta } from "./styleScoring";
+import { STYLE_PASS_THRESHOLD } from "./scoredGeneration";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -61,7 +62,7 @@ export async function sendReviewNotification(
   const styleBlock =
     draft.styleScore !== undefined && draft.styleScore !== null
       ? `\nĐộ khớp phong cách: ${Math.round(draft.styleScore)}%` +
-        (draft.styleScore < 70
+        (draft.styleScore < STYLE_PASS_THRESHOLD
           ? (() => {
               const flag = describeLargestDelta(draft.styleDeltas || {});
               return flag ? `\n⚠️ ${flag}` : "";

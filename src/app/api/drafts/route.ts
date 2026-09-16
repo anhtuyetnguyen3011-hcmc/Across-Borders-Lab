@@ -12,31 +12,15 @@ import {
   repurposeDraft,
   generateHookOptions,
 } from "@/lib/ai";
-import { computeStyleBaseline, scoreDraftAgainstBaseline } from "@/lib/styleScoring";
-import type { UnifiedStyleExample } from "@/lib/data";
+import { runScoredGeneration } from "@/lib/scoredGeneration";
 
-async function runScoredGeneration<T>(
-  styleRefs: UnifiedStyleExample[],
-  attempt: (corrections?: Record<string, number>) => Promise<T>,
-  getBody: (result: T) => string
-): Promise<{ result: T; styleScore: number | null; styleDeltas: Record<string, number> | null }> {
-  const baseline = styleRefs.length > 0 ? computeStyleBaseline(styleRefs) : null;
-
-  let result = await attempt();
-  let styleScore: number | null = null;
-  let styleDeltas: Record<string, number> | null = null;
-
-  if (baseline) {
-    let scored = scoreDraftAgainstBaseline(getBody(result), baseline);
-    if (scored.score < 70) {
-      result = await attempt(scored.deltas);
-      scored = scoreDraftAgainstBaseline(getBody(result), baseline);
-    }
-    styleScore = scored.score;
-    styleDeltas = scored.deltas;
-  }
-
-  return { result, styleScore, styleDeltas };
+function logAIError(action: string, error: unknown): void {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: number }).status
+      : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[api/drafts] ${action} failed:`, { message, status: status ?? null });
 }
 
 export async function GET() {
@@ -68,6 +52,7 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json({ ...result, styleScore, styleDeltas });
     } catch (error) {
+      logAIError("generate", error);
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "AI generation failed" },
         { status: 500 }
@@ -102,6 +87,7 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json({ ...result, styleScore, styleDeltas });
     } catch (error) {
+      logAIError("repurpose", error);
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "AI repurposing failed" },
         { status: 500 }
@@ -115,6 +101,7 @@ export async function POST(req: NextRequest) {
       const hooks = await generateHookOptions(body.title, styleProfile);
       return NextResponse.json({ hooks });
     } catch (error) {
+      logAIError("hooks", error);
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "AI hook generation failed" },
         { status: 500 }
@@ -122,21 +109,29 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const draft = await addDraft({
-    ideaId: body.ideaId,
-    platform: body.platform,
-    pillar: body.pillar,
-    title: body.title,
-    hook: body.hook,
-    body: body.body,
-    outline: body.outline || "",
-    metaDescription: body.metaDescription,
-    targetKeyword: body.targetKeyword,
-    threadStructure: body.threadStructure,
-    styleScore: body.styleScore,
-    styleDeltas: body.styleDeltas,
-  });
-  return NextResponse.json(draft);
+  try {
+    const draft = await addDraft({
+      ideaId: body.ideaId,
+      platform: body.platform,
+      pillar: body.pillar,
+      title: body.title,
+      hook: body.hook,
+      body: body.body,
+      outline: body.outline || "",
+      metaDescription: body.metaDescription,
+      targetKeyword: body.targetKeyword,
+      threadStructure: body.threadStructure,
+      styleScore: body.styleScore,
+      styleDeltas: body.styleDeltas,
+    });
+    return NextResponse.json(draft);
+  } catch (error) {
+    logAIError("addDraft", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to create draft" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function PUT(req: NextRequest) {

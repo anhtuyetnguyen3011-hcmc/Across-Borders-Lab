@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getReviews, addReview, updateReview, getReviewByDraftId, getDraft } from "@/lib/data";
+import { getReviews, updateReview } from "@/lib/data";
 import { generateAIReviewNotes } from "@/lib/ai";
-import { sendReviewNotification, isTelegramConfigured } from "@/lib/telegram";
+import { requestReviewForDraft } from "@/lib/reviewFlow";
 
 export async function GET() {
   return NextResponse.json(await getReviews());
@@ -22,25 +22,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const existing = await getReviewByDraftId(body.draftId);
-  if (existing) {
-    return NextResponse.json(existing);
-  }
-
-  const review = await addReview({
-    draftId: body.draftId,
-    status: "pending",
-    aiRiskNotes: body.aiRiskNotes || [],
-    reviewerComments: "",
-  });
-
-  if (isTelegramConfigured() && review.status === "pending") {
-    const draft = await getDraft(body.draftId);
-    if (draft) {
-      await sendReviewNotification(draft, review);
-    }
-  }
-
+  const { review } = await requestReviewForDraft(body.draftId, body.aiRiskNotes || []);
   return NextResponse.json(review);
 }
 

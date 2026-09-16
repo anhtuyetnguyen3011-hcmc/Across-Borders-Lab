@@ -69,6 +69,19 @@ async function complete(system: string, user: string): Promise<string> {
       .trim();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const status =
+      error && typeof error === "object" && "status" in error
+        ? (error as { status?: number }).status
+        : undefined;
+    const requestId =
+      error && typeof error === "object" && "requestID" in error
+        ? (error as { requestID?: string }).requestID
+        : undefined;
+    console.error(
+      `[ai] Anthropic API error (model=${config.model}, status=${status ?? "n/a"}${
+        requestId ? `, requestId=${requestId}` : ""
+      }): ${message}`
+    );
     throw new Error(`AI generation failed (${config.model}): ${message}`);
   }
 }
