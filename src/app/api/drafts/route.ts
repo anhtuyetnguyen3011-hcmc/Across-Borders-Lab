@@ -92,21 +92,15 @@ async function handlePost(req: NextRequest) {
         getUnifiedStyleReferences(),
         getStyleProfile(),
       ]);
-      const { result, styleScore, styleDeltas } = await runScoredGeneration(
+      const result = await generateDraft(
+        body.idea,
+        body.platform,
+        body.pillar,
+        body.hook,
         styleRefs,
-        (corrections) =>
-          generateDraft(
-            body.idea,
-            body.platform,
-            body.pillar,
-            body.hook,
-            styleRefs,
-            styleProfile?.traits ?? null,
-            corrections
-          ),
-        (r) => r.body
+        styleProfile?.traits ?? null
       );
-      return NextResponse.json({ ...result, styleScore, styleDeltas });
+      return NextResponse.json({ ...result, styleScore: null, styleDeltas: null });
     } catch (error) {
       logAIError("generate", error);
       return NextResponse.json(
